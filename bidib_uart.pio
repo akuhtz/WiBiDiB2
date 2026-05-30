@@ -1,0 +1,151 @@
+;
+; BiDiB UART 9 bits — 500000 baud
+; Format : START(0) + 8 data bits (LSB first) + ID bit + STOP(1)
+; 8 cycles PIO par bit — clock divisor = sys_clock / (500000 * 8)
+;
+; Fichier : bidib_uart.pio
+; Projet  : BIDIBrc Pico 2W
+;
+
+; ─────────────────────────────────────────────────
+; RX — réception 9 bits
+; ─────────────────────────────────────────────────
+;
+; Timing depuis le front descendant du START bit (cycle 0) :
+;   cycle 0       : wait 0 pin 0
+;   cycle 1       : set x, 1
+;   cycle 2       : jmp x-- (saute, x=1→0)
+;   cycle 3       : jmp x-- (ne saute pas, x=0)
+;   cycle 4       : milieu START bit ✓
+;   cycles 4→11   : set x, 8 [7]  (8 cycles)
+;   cycle 12      : premier in → milieu bit 0 ✓
+;   in [6] + jmp  : 8 cycles/bit ✓
+;
+.program bidib_uart_rx
+
+.wrap_target
+wait 0 pin 0                ; attendre front descendant START
+set x, 1
+delay_start:
+    jmp x-- delay_start     ; 2 itérations = milieu START bit
+
+set x, 8 [7]               ; 8 cycles → milieu bit 0
+bitloop:
+    in pins, 1 [6]          ; sample
+    jmp x-- bitloop         ; 8 cycles/bit
+
+push noblock                ; push 9 bits vers FIFO RX
+irq set 0                   ; signaler CPU
+.wrap
+
+% c-sdk {
+#include "hardware/clocks.h"
+
+static inline void bidib_uart_rx_init(PIO pio, uint sm, uint offset,
+                                       uint pin, float baud)
+{
+    pio_sm_config c = bidib_uart_rx_program_get_default_config(offset);
+
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, false);
+    sm_config_set_in_pins(&c, pin);
+    gpio_set_input_hysteresis_enabled(pin, true);
+
+    // LSB first, push manuel, threshold=9
+    sm_config_set_in_shift(&c, true, false, 9);
+
+    float div = (float)clock_get_hz(clk_sys) / (baud * 8.0f);
+    sm_config_set_clkdiv(&c, div);
+
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}
+
+
+; ─────────────────────────────────────────────────
+; TX — émission 9 bits
+; ─────────────────────────────────────────────────
+;
+; Format : START(0) [6] + 9 bits OSR + STOP(1) [7]
+;
+; Le CPU écrit un mot 32 bits dans le FIFO avec les 9 bits
+; alignés à DROITE (bits 0..8) :
+;   bit 0 = premier bit data (LSB)
+;   bit 7 = dernier bit data (MSB)
+;   bit 8 = ID bit
+;
+; out_shift=RIGHT, threshold=9 → le PIO sort bit0 en premier (LSB first)
+;
+; Fin de trame : le PIO lève irq 1 après le STOP bit
+; → le CPU peut abaisser DE/RE dès réception de cette IRQ
+;
+; ─────────────────────────────────────────────────
+.program bidib_uart_tx
+;
+; Timing TX — 8 cycles par bit :
+;   pull block         = 1 cycle  (entre trames, hors timing)
+;Data moves from the transmit FIFO to the OSR (output shift register)
+;    one word (32 bits) at a time
+;   set x, 8           = 1 cycle  (entre trames, hors timing)
+;   set pins, 0 [7]    = 8 cycles → START bit ✓; set pins, 0  Drive pin low
+;   out pins, 1 [6]    = 7 cycles
+;   jmp x--            = 1 cycle  → 8 cycles/bit data ✓
+;   set pins, 1 [7]    = 8 cycles → STOP bit ✓
+;
+.wrap_target
+    pull block              ; attendre mot dans FIFO TX
+    set pins, 0 [7]         ; START bit = 8 cycles
+    
+    set x, 8                ; 9 bits à envoyer    le jmp sera x--
+   bitloop_tx:
+;  out instruction here takes one bit from the data we just pull-ed from the FIFO, 
+; and writes that data to some pins
+    out pins, 1 [6]         ; 1 bit + 7 délai = 8 cycles
+    jmp x-- bitloop_tx      ; (le jmp consomme le 8ème cycle du bit précédent)
+
+    set pins, 1 [7]         ; STOP bit HIGH — 8 cycles
+    ;set  pins, 1 [1]          ;  Drive pin high and then delay for one cycle
+    irq set 1               ; signaler fin de trame au CPU (pour abaisser DE)
+
+.wrap
+
+% c-sdk {
+static inline void bidib_uart_tx_init(PIO pio, uint sm, uint offset,
+                                       uint pin, float baud)
+{
+      pio_sm_config c = bidib_uart_tx_program_get_default_config(offset);
+
+    // Map the state machine's OUT pin group to one pin, namely the `pin`
+    // parameter to this function.
+        sm_config_set_out_pins(&c, pin, 1);
+      
+    // Set this pin's GPIO function (connect PIO to the pad)
+    pio_gpio_init(pio, pin);
+   
+    // Set the pin direction to output at the PIO
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+  
+  //  sm_config_set_out_pins(&c, pin, 1);
+    sm_config_set_set_pins(&c, pin, 1);
+
+    // LSB first, auto-pull désactivé, threshold=9 bits
+    sm_config_set_out_shift(&c, true, false, 9);
+
+    // 8 cycles PIO par bit
+    float div = (float)clock_get_hz(clk_sys) / (baud * 8.0f);
+    sm_config_set_clkdiv(&c, div);
+
+    // Load our configuration, and jump to the start of the program
+    pio_sm_init(pio, sm, offset, &c);
+
+    // Ligne TX idle HIGH — config appliquée, ordre correct
+    pio_sm_set_pins(pio, sm, 1);
+
+    //  pio_sm_drain_tx_fifo  Empty out a state machine’s TX FIFO.
+    pio_sm_drain_tx_fifo(pio, sm); 
+ 
+    // Set the state machine running
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}
