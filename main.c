@@ -62,7 +62,7 @@ int main(void)
     while (1) {
         cyw43_arch_poll();  // traite WiFi + lwIP callbacks
         run_bidib_client(); 
-        sleep_ms(1);
+      //  sleep_ms(1);
     }
 
     cyw43_arch_deinit();

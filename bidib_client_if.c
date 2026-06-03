@@ -42,7 +42,6 @@
 #include "bidib_client_if.h"
 #include "crc_8bit.h"
 
-
 extern uint8_t g_bidib_connect;
 
 // ─── Buffers ─────────────────────────────────────────────────────────────────
@@ -69,16 +68,6 @@ uint8_t  bidib_rx_fill      = 0;
 
 // Numéro de séquence des messages TX
 static uint8_t bidib_tx0_msg_num = 1;
-
-// ─── Helpers IRQ ─────────────────────────────────────────────────────────────
-// Remplace cli()/sei() Atmel
-
-static inline uint32_t bidib_enter_critical(void) {
-    return save_and_disable_interrupts();
-}
-static inline void bidib_exit_critical(uint32_t state) {
-    restore_interrupts(state);
-}
 
 // ─── Direction RS485 ─────────────────────────────────────────────────────────
 // Remplace SET_BIDIB_TO_RX/TX() Atmel
@@ -161,7 +150,7 @@ bool bidib_tx_fifo_put(uint8_t *new_message) {
     if (g_bidib_connect != BIDIB_CONNECTED) return true;  // pas connecté → ignorer
 
     uint8_t size = new_message[0];   // nombre d'octets du message (sans size)
-    uint8_t total = size + 2;        // size + message + crc
+    uint8_t total = size + 1;        // size + message
 
     // Vérifier place disponible
     uint32_t s = bidib_enter_critical();
@@ -171,26 +160,15 @@ bool bidib_tx_fifo_put(uint8_t *new_message) {
         return false;
     }
 
-    // Calculer CRC sur tout le message (size inclus)
-    uint8_t crc = 0;
-    for (uint8_t i = 0; i <= size; i++) {
-        crc = crc8_update(crc, new_message[i]);
-    }
-
-    // Copier dans le buffer circulaire : [size][addr][mnum][type][data...][crc]
+    // Copier dans le buffer circulaire : [size][addr][mnum][type][data...]
     for (uint8_t i = 0; i <= size; i++) {
         bidib_tx_buf[bidib_tx_buf_write] = new_message[i];
         bidib_tx_buf_write = (bidib_tx_buf_write + 1) & (BIDIB_TX_BUF_SIZE - 1);
     }
-    // Ajouter CRC
-    bidib_tx_buf[bidib_tx_buf_write] = crc;
-    bidib_tx_buf_write = (bidib_tx_buf_write + 1) & (BIDIB_TX_BUF_SIZE - 1);
 
     bidib_tx_fill += total;
     bidib_exit_critical(s);
 
-    printf("[bidib_if] tx_fifo_put type=0x%02X size=%d crc=0x%02X\n",
-           new_message[3], size, crc);
     return true;
 }
 

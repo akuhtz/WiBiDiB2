@@ -83,6 +83,8 @@ extern uint8_t  bidib_rx_buf_write;
 extern uint8_t  bidib_rx_fill;
 
 // ─── API publique ─────────────────────────────────────────────────────────────
+void bidib_start_parser_tx(void);
+
 void     init_bidib_client_if(void);
 void     stop_bidib_client_if(void);
 

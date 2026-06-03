@@ -83,13 +83,19 @@ static inline uint32_t get_tick_ms(void) {
 // Identique Atmel — délègue à bidib_tx_fifo_put()
 
 bool send_bidib_message(uint8_t *message) {
+     gpio_put(BIDIB_PIN_TEST , 1);
+    busy_wait_us_32(12);
+    gpio_put(BIDIB_PIN_TEST , 0);
+    
+    return bidib_tx_fifo_put(message);
+    
     return bidib_tx_fifo_put(message);
 }
 
 // ─── Messages système de base ────────────────────────────────────────────────
 
 static void bidib_send_sys_magic(void) {
-    // MSG_SYS_MAGIC répond avec 0xFE 0xAF (magic word BiDiB)
+   /* // MSG_SYS_MAGIC répond avec 0xFE 0xAF (magic word BiDiB)
     t_node_message2 message;
     message.header.node_addr = 0;
     message.header.index     = bidib_get_tx_num();
@@ -98,6 +104,10 @@ static void bidib_send_sys_magic(void) {
     message.data[1] = 0xAF;
     message.header.size = 3 + 2;
     send_bidib_message((uint8_t *)&message);
+    */
+
+    uint8_t message[7] = {0x06, 0x01, 0x00, 0x00, 0x81, 0xFE, 0xAF};
+    send_bidib_message(message);
 }
 
 static void bidib_send_sys_pong(uint8_t para) {
@@ -212,11 +222,11 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
     uint8_t  length;
     uint8_t *msg_type;
 
-    length = *bidib_rx_msg++;
-    if ((length == 0) || (length & 0x80)) {
-        bidib_send_error(BIDIB_ERR_SIZE, bidib_rx_msg_num);
-        return 128;
-    }
+        if (*bidib_rx_msg != bidib_rx_msg_num) {
+            // Resync silencieux — pas d'erreur envoyée
+            bidib_rx_msg_num = *bidib_rx_msg;  
+        }
+        bidib_rx_msg++;  // saute msg_num
 
     // Vérification adresse
     if (*bidib_rx_msg == 0) {
@@ -229,10 +239,13 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             bidib_rx_msg++;
             bidib_rx_msg_num++;
             if (bidib_rx_msg_num == 0) bidib_rx_msg_num = 1;
-            if (*bidib_rx_msg != bidib_rx_msg_num) {
+           /* if (*bidib_rx_msg != bidib_rx_msg_num) {
                 bidib_send_error(BIDIB_ERR_SEQUENCE, bidib_rx_msg_num);
                 bidib_rx_msg_num = *bidib_rx_msg;
-            }
+            }*/
+           // Resync silencieux — accepter le msg_num reçu
+            bidib_rx_msg_num = *bidib_rx_msg;
+            bidib_rx_msg++;  // saute msg_num
         } else {
             return (length + 1);  // sub-node adressé — on n'en a pas
         }
@@ -250,7 +263,13 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
 
         // ── Système ──────────────────────────────────────────────────────────
         case MSG_SYS_GET_MAGIC:
-            bidib_send_sys_magic();
+            
+            gpio_put(BIDIB_PIN_TEST , 1);
+            busy_wait_us_32(4);
+            gpio_put(BIDIB_PIN_TEST , 0);
+        
+        bidib_send_sys_magic();
+
             break;
 
         case MSG_SYS_GET_P_VERSION:
@@ -309,6 +328,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
                 temp = temp & 0x80;
                 set_bidib_state(BIDIB_CONNECTED, assigned | temp);
                 printf("[bidib_parser] LOGON_ACK → addr=0x%02X\n", assigned);
+                bidib_rx_msg_num = 0;  // repart de zéro à chaque connexion
             }
             break;
 
@@ -345,7 +365,9 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
 static void bidib_parser(void) {
     bidib_rx_total = bidib_rx_paket[0];
     bidib_rx_index = 1;  // sauter PLENGTH
-
+    gpio_put(BIDIB_PIN_TEST , 1);
+    busy_wait_us_32(8);
+    gpio_put(BIDIB_PIN_TEST , 0);
     printf("[bidib_parser] parsing packet, total=%d\n", bidib_rx_total);
 
     while (bidib_rx_index < bidib_rx_total) {
@@ -362,7 +384,11 @@ static void bidib_parser(void) {
 
 void run_bidib_client(void) {
     uint32_t now = get_tick_ms();
-
+    static uint32_t last = 0;
+    if ((now - last) > 2000) {
+    last = now;
+ //   printf("[state] fill=%d logon=%d\n", bidib_tx_fill, tx_mode_logon);
+    }
     // ── 1. Watchdog connexion ─────────────────────────────────────────────────
     if (g_bidib_connect == BIDIB_CONNECTED) {
         if ((now - bidib_active_timestamp) > 5000) {
@@ -396,6 +422,9 @@ void run_bidib_client(void) {
                     bidib_rx_index    = 1;      // index dans le paquet (0 = P_LENGTH)
                     bidib_rx_crc      = crc_array[byte];
                     bidib_rx_state    = BIDIB_COLLECT_MESSAGE;
+                    gpio_put(BIDIB_PIN_TEST , 1);
+                    busy_wait_us_32(2);
+                    gpio_put(BIDIB_PIN_TEST , 0);
                     printf(" GL %02x crc %02x ", byte, bidib_rx_crc);
                 } else {
                     bidib_rx_state = BIDIB_IDLE;

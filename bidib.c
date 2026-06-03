@@ -32,6 +32,7 @@ const uint8_t MyUniqueID[7] = {
 static PIO  s_pio   = pio0;
 static uint s_sm_rx = 0;
 static uint s_sm_tx = 1;
+volatile bool tx_nak_mode = false;
 extern uint8_t g_bidib_connect;
 extern uint8_t g_bidib_backoff;
 extern uint8_t my_bidib_node_addr;
@@ -43,6 +44,14 @@ extern uint8_t my_bidib_node_addr;
 static volatile uint16_t tx_buf[TX_BUF_SIZE];
 static volatile uint8_t  tx_remaining = 0;
 static volatile uint8_t  tx_index     = 0;
+
+// ─────────────────────────────────────────────────
+// Pont TX — bascule entre logon et messages normaux
+// ─────────────────────────────────────────────────
+volatile bool     tx_mode_logon       = true;
+static volatile uint8_t  tx_parser_remaining = 0;
+static volatile uint8_t  tx_parser_index     = 0;
+static volatile uint8_t  tx_parser_crc       = 0;
 
 // ─────────────────────────────────────────────────
 // Préparer le buffer TX avec le message LOGON
@@ -83,14 +92,59 @@ static void __not_in_flash_func(bidib_pio_tx_isr)(void)
 {
     pio_interrupt_clear(s_pio, 1);
 
-    if (tx_remaining > 0) {
-        uint16_t w = tx_buf[tx_index++];
-        tx_remaining--;
-        pio_sm_put(s_pio, s_sm_tx, (uint32_t)w);
+    if (tx_mode_logon) {
+        if (tx_remaining > 0) {
+            uint16_t w = tx_buf[tx_index++];
+            tx_remaining--;
+            pio_sm_put(s_pio, s_sm_tx, (uint32_t)w);
+        } else {
+            gpio_put(BIDIB_PIN_DE, 0);
+            irq_set_enabled(PIO0_IRQ_1, false);
+            tx_mode_logon = false;
+            uint32_t s = save_and_disable_interrupts();
+            bidib_tx_buf_read  = 0;
+            bidib_tx_buf_write = 0;
+            bidib_tx_fill      = 0;
+            bidib_tx_remaining = 0;
+            restore_interrupts(s);
+        }
     } else {
-        // Fin de transmission
+        if (tx_nak_mode) {
+        tx_nak_mode = false;
+        while (!pio_sm_is_tx_fifo_empty(s_pio, s_sm_tx))
+            tight_loop_contents();
+        busy_wait_us_32(25);
         gpio_put(BIDIB_PIN_DE, 0);
         irq_set_enabled(PIO0_IRQ_1, false);
+        return;
+    }
+        if (tx_parser_remaining > 0) {
+            // Émettre l'octet suivant
+            uint8_t b = bidib_tx_buf[tx_parser_index];
+            tx_parser_index     = (tx_parser_index + 1) & (BIDIB_TX_BUF_SIZE - 1);
+            tx_parser_remaining--;
+            tx_parser_crc       = crc8_update(tx_parser_crc, b);
+            pio_sm_put(s_pio, s_sm_tx, (uint32_t)b);
+        } else {
+            // Émettre le CRC
+            pio_sm_put(s_pio, s_sm_tx, (uint32_t)tx_parser_crc);
+            while (!pio_sm_is_tx_fifo_empty(s_pio, s_sm_tx))
+                tight_loop_contents();
+            busy_wait_us_32(25);
+
+            // Enchaîner ou terminer
+            if (bidib_tx_fill > 0) {
+                uint8_t size        = bidib_tx_buf[bidib_tx_buf_read];
+                tx_parser_index     = (bidib_tx_buf_read + 1) & (BIDIB_TX_BUF_SIZE - 1);
+                tx_parser_remaining = size;
+                tx_parser_crc       = 0;
+                bidib_tx_buf_read   = (bidib_tx_buf_read + size + 1) & (BIDIB_TX_BUF_SIZE - 1);
+                bidib_tx_fill      -= (size + 1);
+            } else {
+                gpio_put(BIDIB_PIN_DE, 0);
+                irq_set_enabled(PIO0_IRQ_1, false);
+            }
+        }
     }
 }
 
@@ -99,20 +153,42 @@ static void __not_in_flash_func(bidib_pio_tx_isr)(void)
 // ─────────────────────────────────────────────────
 static void __not_in_flash_func(bidib_start_tx)(void)
 {
+   tx_mode_logon = true;    // ← ajouter
     tx_index     = 0;
-    tx_remaining = BIDIB_LOGON_MSG_SIZE - 1;  // -1 : premier octet envoyé ici
+    tx_remaining = BIDIB_LOGON_MSG_SIZE - 1;
+    gpio_put(BIDIB_PIN_DE, 1);
+    pio_sm_put(s_pio, s_sm_tx, (uint32_t)tx_buf[tx_index++]);
+    irq_set_enabled(PIO0_IRQ_1, true);
+}
+
+void bidib_start_parser_tx(void)
+{
+    uint32_t s = bidib_enter_critical();
+
+    // Prendre le prochain message dans le fifo
+    uint8_t size = bidib_tx_buf[bidib_tx_buf_read]; // size = nb octets sans size
+    tx_parser_index     = bidib_tx_buf_read;
+    tx_parser_remaining = size + 1;  // size + message (sans CRC)
+    tx_parser_crc       = 0;
+    bidib_tx_buf_read   = (bidib_tx_buf_read + tx_parser_remaining) 
+                          & (BIDIB_TX_BUF_SIZE - 1);
+    bidib_tx_fill      -= tx_parser_remaining;
+
+    bidib_exit_critical(s);
 
     gpio_put(BIDIB_PIN_DE, 1);
+    // Kickstart : premier octet manuel
+    uint8_t first = bidib_tx_buf[tx_parser_index];
+    tx_parser_index     = (tx_parser_index + 1) & (BIDIB_TX_BUF_SIZE - 1);
+    tx_parser_remaining--;
+    tx_parser_crc       = crc8_update(0, first);
+    pio_sm_put(s_pio, s_sm_tx, (uint32_t)first);
 
-    // Premier octet — comme ATMEL UART.DATA = first
-    pio_sm_put(s_pio, s_sm_tx, (uint32_t)tx_buf[tx_index++]);
-
-    // Activer ISR TX pour les suivants
     irq_set_enabled(PIO0_IRQ_1, true);
 }
 
 // ─────────────────────────────────────────────────
-// ISR RX — version qui fonctionnait + bidib_start_tx()
+// ISR RX —
 // ─────────────────────────────────────────────────
 static void __not_in_flash_func(bidib_pio_rx_isr)(void)
 {
@@ -121,6 +197,10 @@ static void __not_in_flash_func(bidib_pio_rx_isr)(void)
     while (!pio_sm_is_rx_fifo_empty(s_pio, s_sm_rx)) {
 
         uint32_t raw    = pio_sm_get(s_pio, s_sm_rx);
+        // Ignorer les échos pendant l'émission
+            if (gpio_get(BIDIB_PIN_DE)) {
+             continue;
+            }
         uint32_t word   = raw >> 23;
         uint8_t  byte   = (uint8_t)(word & 0xFF);
         uint8_t  id_bit = (uint8_t)((word >> 8) & 0x01);
@@ -160,11 +240,26 @@ static void __not_in_flash_func(bidib_pio_rx_isr)(void)
                 }
             } else {
                 // Adresse nœud
+               // printf("[poll?] byte=0x%02X my_addr=0x%02X\n", byte, my_bidib_node_addr);
                 if (byte == my_bidib_node_addr) {
                     // Poll → NODE_READY
-                    gpio_put(BIDIB_PIN_DE, 1); 
+                busy_wait_us_32(1);
+                gpio_put(BIDIB_PIN_DE, 1);
+                if (bidib_tx_fill > 0 && !tx_mode_logon) {
+                    uint8_t size        = bidib_tx_buf[bidib_tx_buf_read]; // size du 1er message
+                    tx_parser_index     = (bidib_tx_buf_read + 1) & (BIDIB_TX_BUF_SIZE - 1);
+                    tx_parser_remaining = size;        // octets après le length
+                    tx_parser_crc       = 0;           // CRC repart de zéro
+                    bidib_tx_buf_read   = (bidib_tx_buf_read + size + 1) & (BIDIB_TX_BUF_SIZE - 1);
+                    bidib_tx_fill      -= (size + 1); 
+
+                     pio_sm_put(s_pio, s_sm_tx, (uint32_t)size);  // ← kickstart : émet le length
+                    irq_set_enabled(PIO0_IRQ_1, true);            // ← démarre l'ISR
+                } else {
+                    tx_nak_mode = true;
                     pio_sm_put(s_pio, s_sm_tx, 0x000);
-                    irq_set_enabled(PIO0_IRQ_1, true);
+                    irq_set_enabled(PIO0_IRQ_1, true);  // ← comme la version précédent
+                }    
                 }
             }
         }
@@ -185,6 +280,10 @@ void bidib_init(void)
     gpio_set_dir(BIDIB_PIN_DE, GPIO_OUT);
     gpio_put(BIDIB_PIN_DE, 0);
     printf("DE pin OK\n");
+
+    gpio_init(BIDIB_PIN_TEST);
+    gpio_set_dir(BIDIB_PIN_TEST, GPIO_OUT);
+    gpio_put(BIDIB_PIN_TEST, 0);
 
     uint offset_rx = pio_add_program(s_pio, &bidib_uart_rx_program);
     uint offset_tx = pio_add_program(s_pio, &bidib_uart_tx_program);

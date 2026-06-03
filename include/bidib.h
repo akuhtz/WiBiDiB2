@@ -2,7 +2,14 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "pico/critical_section.h"
 
+static inline uint32_t bidib_enter_critical(void) {
+    return save_and_disable_interrupts();
+}
+static inline void bidib_exit_critical(uint32_t state) {
+    restore_interrupts(state);
+}
 // ─────────────────────────────────────────────────
 // Pins
 // ─────────────────────────────────────────────────
@@ -40,7 +47,7 @@ typedef enum {
     BIDIB_REJECTED,
 } bidib_state_t;
 
-
+extern volatile bool tx_mode_logon;
 // ─────────────────────────────────────────────────
 // API publique
 // ─────────────────────────────────────────────────
