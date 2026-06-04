@@ -40,6 +40,8 @@
 uint8_t g_bidib_connect  = BIDIB_DISCONNECTED;
 uint8_t g_bidib_backoff  = 0;
 uint8_t my_bidib_node_addr = 0xFF;
+uint8_t my_addr_stack[4] = {0, 0, 0, 0};
+uint8_t my_addr_depth    = 0;
 
 // Guest mode activé par MSG_SYS_ENABLE
 static bool g_bidib_spontan_enabled = false;
@@ -78,6 +80,17 @@ static inline uint32_t get_tick_ms(void) {
     return (uint32_t)(time_us_64() / 1000ULL);
 }
 
+// Helper générique — construit l'en-tête dans buf, retourne l'offset des data
+static uint8_t bidib_build_header(uint8_t *buf, uint8_t msg_type, uint8_t nb_data) {
+    uint8_t i = 0;
+    buf[i++] = my_addr_depth + 1 + 1 + 1 + nb_data;  // size
+    for (uint8_t j = 0; j < my_addr_depth; j++)
+        buf[i++] = my_addr_stack[j];                   // adresses
+    buf[i++] = 0x00;                                   // terminateur
+    buf[i++] = bidib_get_tx_num();                     // index
+    buf[i++] = msg_type;                               // type
+    return i;                                          // offset pour les data
+}
 // ─── send_bidib_message() ────────────────────────────────────────────────────
 // Point d'entrée unique pour envoyer un message BiDiB
 // Identique Atmel — délègue à bidib_tx_fifo_put()
@@ -94,81 +107,85 @@ bool send_bidib_message(uint8_t *message) {
 
 // ─── Messages système de base ────────────────────────────────────────────────
 
-static void bidib_send_sys_magic(void) {
-   /* // MSG_SYS_MAGIC répond avec 0xFE 0xAF (magic word BiDiB)
-    t_node_message2 message;
-    message.header.node_addr = 0;
-    message.header.index     = bidib_get_tx_num();
-    message.header.msg_type  = MSG_SYS_MAGIC;
-    message.data[0] = 0xFE;
-    message.data[1] = 0xAF;
-    message.header.size = 3 + 2;
+    // MSG_SYS_MAGIC répond avec 0xFE 0xAF (magic word BiDiB)
+static void bidib_send_sys_magic(void) {  
+    uint8_t message[10];
+    uint8_t i = bidib_build_header(message, MSG_SYS_MAGIC, 2);
+    message[i++] = 0xFE;
+    message[i++] = 0xAF;
+  //  message.header.size = my_addr_depth + 1 + 1 + 1 + 2; // addr + term + index + type + data
+  uint8_t *p = (uint8_t *)&message;
+printf("magic raw: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+        p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
+  
     send_bidib_message((uint8_t *)&message);
-    */
-
-    uint8_t message[7] = {0x06, 0x01, 0x00, 0x00, 0x81, 0xFE, 0xAF};
-    send_bidib_message(message);
-}
+}    
 
 static void bidib_send_sys_pong(uint8_t para) {
     t_node_message1 message;
-    message.header.node_addr = 0;
+     memcpy(message.header.addr_stack, my_addr_stack, 4);
+    message.header.terminator = 0x00;
     message.header.index     = bidib_get_tx_num();
     message.header.msg_type  = MSG_SYS_PONG;
     message.data = para;
-    message.header.size = 3 + 1;
+    message.header.size = my_addr_depth + 1 + 1 + 1 + 1; // addr + term + index + type + data
     send_bidib_message((uint8_t *)&message);
 }
 
 static void bidib_send_sys_unique_id(void) {
     t_node_message10 message;
-    message.header.node_addr = 0;
+    memcpy(message.header.addr_stack, my_addr_stack, 4);
+    message.header.terminator = 0x00;
     message.header.index     = bidib_get_tx_num();
     message.header.msg_type  = MSG_SYS_UNIQUE_ID;
     memcpy(message.data, MyUniqueID, 7);
-    message.header.size = 3 + 7;
+    message.header.size = my_addr_depth + 1 + 1 + 1 + 7; // addr + term + index + type + data
     send_bidib_message((uint8_t *)&message);
 }
 
 static void bidib_send_sys_pversion(void) {
     t_node_message2 message;
-    message.header.node_addr = 0;
+   memcpy(message.header.addr_stack, my_addr_stack, 4);
+    message.header.terminator = 0x00;
     message.header.index     = bidib_get_tx_num();
     message.header.msg_type  = MSG_SYS_P_VERSION;
     message.data[0] = 0;    // version majeure
     message.data[1] = 7;    // version mineure (BiDiB 0.7)
-    message.header.size = 3 + 2;
+    message.header.size = my_addr_depth + 1 + 1 + 1 + 2; // addr + term + index + type + data
     send_bidib_message((uint8_t *)&message);
 }
 
 static void bidib_send_error(uint8_t error_num, uint8_t error_para) {
     t_node_message2 message;
-    message.header.node_addr = 0;
+    memcpy(message.header.addr_stack, my_addr_stack, 4);
+    message.header.terminator = 0x00;
     message.header.index     = bidib_get_tx_num();
     message.header.msg_type  = MSG_SYS_ERROR;
     message.data[0] = error_num;
     message.data[1] = error_para;
-    message.header.size = 3 + 2;
+    message.header.size = my_addr_depth + 1 + 1 + 1 + 2; // addr + term + index + type + data
     send_bidib_message((uint8_t *)&message);
 }
 
 static void bidib_send_pkt_capacity(void) {
     t_node_message1 message;
-    message.header.node_addr = 0;
+    memcpy(message.header.addr_stack, my_addr_stack, 4);
+    message.header.terminator = 0x00;
     message.header.index     = bidib_get_tx_num();
     message.header.msg_type  = MSG_PKT_CAPACITY;
     message.data = 64;  // capacité paquet en octets
-    message.header.size = 3 + 1;
+    message.header.size = my_addr_depth + 1 + 1 + 1 + 1; // addr + term + index + type + data
     send_bidib_message((uint8_t *)&message);
 }
 
 bool bidib_send_onepara_msg(uint8_t msg_type, uint8_t dat) {
     t_node_message1 message;
-    message.header.node_addr = 0;
+    memcpy(message.header.addr_stack, my_addr_stack, 4);
+    message.header.terminator = 0x00;
     message.header.index     = bidib_get_tx_num();
     message.header.msg_type  = msg_type;
     message.data = dat;
-    message.header.size = 3 + 1;
+    message.header.size = my_addr_depth + 1 + 1 + 1 + 1; // addr + term + index + type + data
     return send_bidib_message((uint8_t *)&message);
 }
 
@@ -219,45 +236,47 @@ void set_bidib_state(uint8_t neu, uint8_t assigned_addr) {
 // Identique Atmel — simplifié pour WiBiDiB (pas de CLASS_OCCUPANCY, etc.)
 
 static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
-    uint8_t  length;
+   uint8_t  length;
     uint8_t *msg_type;
+    uint8_t  addr_stack[4] = {0, 0, 0, 0};  // pile d'adresses extraite
+    uint8_t  addr_depth = 0;                 // nombre de niveaux
 
-        if (*bidib_rx_msg != bidib_rx_msg_num) {
-            // Resync silencieux — pas d'erreur envoyée
-            bidib_rx_msg_num = *bidib_rx_msg;  
-        }
-        bidib_rx_msg++;  // saute msg_num
+    length = *bidib_rx_msg++;
+    if ((length == 0) || (length & 0x80)) {
+        printf("[bidib_parser] invalid message length: %d\n", length);
+        return 128;
+    }
 
-    // Vérification adresse
+    // Vérification adresse et extraction de la pile
     if (*bidib_rx_msg == 0) {
         // broadcast
-        bidib_rx_msg++;
+        bidib_rx_msg++;  // saute addr=0x00
+        bidib_rx_msg++;  // saute msg_num
     } else if (*bidib_rx_msg == (my_bidib_node_addr & 0x3F)) {
-        bidib_rx_msg++;
-        if (*bidib_rx_msg == 0) {
-            // directement adressé à nous
-            bidib_rx_msg++;
-            bidib_rx_msg_num++;
-            if (bidib_rx_msg_num == 0) bidib_rx_msg_num = 1;
-           /* if (*bidib_rx_msg != bidib_rx_msg_num) {
-                bidib_send_error(BIDIB_ERR_SEQUENCE, bidib_rx_msg_num);
-                bidib_rx_msg_num = *bidib_rx_msg;
-            }*/
-           // Resync silencieux — accepter le msg_num reçu
-            bidib_rx_msg_num = *bidib_rx_msg;
-            bidib_rx_msg++;  // saute msg_num
-        } else {
-            return (length + 1);  // sub-node adressé — on n'en a pas
+        // Extraire la pile d'adresses jusqu'au terminateur 0x00
+        while (*bidib_rx_msg != 0x00 && addr_depth < 4) {
+            addr_stack[addr_depth++] = *bidib_rx_msg++;
         }
+        bidib_rx_msg++;  // saute le terminateur 0x00
+
+        // Vérification séquence
+        if (*bidib_rx_msg != bidib_rx_msg_num) {
+            printf("[bidib_parser] sequence resync: expected %d got %d\n",
+                   bidib_rx_msg_num, *bidib_rx_msg);
+            bidib_rx_msg_num = *bidib_rx_msg;
+        }
+        bidib_rx_msg_num++;
+        if (bidib_rx_msg_num == 0) bidib_rx_msg_num = 1;
+        bidib_rx_msg++;  // saute msg_num
     } else {
         return (length + 1);  // pas pour nous
     }
 
     // Pointer sur le type de message
-    bidib_rx_msg++;
     msg_type = bidib_rx_msg;
 
-    printf("[bidib_parser] rx msg type=0x%02X\n", *msg_type);
+    printf("[bidib_parser] rx msg type=0x%02X addr=[%d]\n", 
+           *msg_type, addr_stack[0]);
 
     switch (*msg_type) {
 
@@ -267,8 +286,8 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             gpio_put(BIDIB_PIN_TEST , 1);
             busy_wait_us_32(4);
             gpio_put(BIDIB_PIN_TEST , 0);
-        
-        bidib_send_sys_magic();
+        printf("addr_stack=%02X depth=%d\n", my_addr_stack[0], my_addr_depth);
+          bidib_send_sys_magic();
 
             break;
 
@@ -277,7 +296,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             break;
 
         case MSG_SYS_PING:
-            bidib_send_sys_pong(msg_type[1]);
+            bidib_send_sys_pong(msg_type[1]);   
             break;
 
         case MSG_SYS_GET_UNIQUE_ID:
@@ -300,8 +319,6 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         case MSG_SYS_RESET:
             printf("[bidib_parser] SYS_RESET → restarting\n");
             sleep_ms(500);
-            // Reset Pico via watchdog
-            // watchdog_reboot(0, 0, 0);  // décommenter si watchdog activé
             break;
 
         case MSG_GET_PKT_CAPACITY:
@@ -327,8 +344,14 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
                 temp = temp ^ (temp << 1);
                 temp = temp & 0x80;
                 set_bidib_state(BIDIB_CONNECTED, assigned | temp);
+                // Initialiser la pile d'adresses permanente
+                memset(my_addr_stack, 0, 4);
+                my_addr_stack[0] = assigned & 0x3F;  // adresse sans bit de parité
+                my_addr_depth    = 1;
+
                 printf("[bidib_parser] LOGON_ACK → addr=0x%02X\n", assigned);
                 bidib_rx_msg_num = 0;  // repart de zéro à chaque connexion
+                bidib_tx0_msg_num  = 0;
             }
             break;
 
@@ -440,6 +463,7 @@ void run_bidib_client(void) {
                     // Octet de données
                     if (bidib_rx_index < 64) {
                         bidib_rx_paket[bidib_rx_index] = byte;
+                        printf("%02x ", byte);
                     }
                     bidib_rx_crc = crc8_update(bidib_rx_crc, byte);
                     bidib_rx_index++;

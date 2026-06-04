@@ -67,7 +67,7 @@ uint8_t  bidib_rx_buf_write = 0;
 uint8_t  bidib_rx_fill      = 0;
 
 // Numéro de séquence des messages TX
-static uint8_t bidib_tx0_msg_num = 1;
+uint8_t bidib_tx0_msg_num = 0;
 
 // ─── Direction RS485 ─────────────────────────────────────────────────────────
 // Remplace SET_BIDIB_TO_RX/TX() Atmel

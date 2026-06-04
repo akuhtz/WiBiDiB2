@@ -48,6 +48,9 @@ typedef enum {
 } bidib_state_t;
 
 extern volatile bool tx_mode_logon;
+extern uint8_t my_addr_stack[4];
+extern uint8_t my_addr_depth;
+extern uint8_t bidib_tx0_msg_num;
 // ─────────────────────────────────────────────────
 // API publique
 // ─────────────────────────────────────────────────
