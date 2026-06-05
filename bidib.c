@@ -102,9 +102,8 @@ static void __not_in_flash_func(bidib_pio_tx_isr)(void)
             irq_set_enabled(PIO0_IRQ_1, false);
             tx_mode_logon = false;
             uint32_t s = save_and_disable_interrupts();
-            bidib_tx_buf_read  = 0;
-            bidib_tx_buf_write = 0;
-            bidib_tx_fill      = 0;
+            bidib_tx_buf_read  = BIDIB_SIZE_OF_LOGON_MSG + 1;  // 12 — après le logon
+            // bidib_tx_buf_write reste inchangé — données déjà écrites
             bidib_tx_remaining = 0;
             restore_interrupts(s);
         }
@@ -239,28 +238,36 @@ static void __not_in_flash_func(bidib_pio_rx_isr)(void)
                     }
                 }
             } else {
-                // Adresse nœud
-               // printf("[poll?] byte=0x%02X my_addr=0x%02X\n", byte, my_bidib_node_addr);
-                if (byte == my_bidib_node_addr) {
-                    // Poll → NODE_READY
-                busy_wait_us_32(1);
-                gpio_put(BIDIB_PIN_DE, 1);
-                if (bidib_tx_fill > 0 && !tx_mode_logon) {
-                    uint8_t size        = bidib_tx_buf[bidib_tx_buf_read]; // size du 1er message
-                    tx_parser_index     = (bidib_tx_buf_read + 1) & (BIDIB_TX_BUF_SIZE - 1);
-                    tx_parser_remaining = size;        // octets après le length
-                    tx_parser_crc       = 0;           // CRC repart de zéro
-                    bidib_tx_buf_read   = (bidib_tx_buf_read + size + 1) & (BIDIB_TX_BUF_SIZE - 1);
-                    bidib_tx_fill      -= (size + 1); 
+               // Poll
+                if (byte == my_bidib_node_addr) {  
+                    busy_wait_us_32(1);
+                    gpio_put(BIDIB_PIN_DE, 1);
+                 } else {
+            gpio_put(BIDIB_PIN_DE, 0);
+            irq_set_enabled(PIO0_IRQ_1, false);
+            tx_mode_logon = false;
+            uint32_t s = save_and_disable_interrupts();
+            bidib_tx_buf_read  = 0;
+            bidib_tx_buf_write = 0;
+            bidib_tx_ahead     = 0;  // ← remplace bidib_tx_fill
+            bidib_tx_remaining = 0;
+            restore_interrupts(s);
+        }
+                    for (uint8_t i = 0; i < 9; i++) {
+                        printf("%02X ", bidib_tx_buf[(bidib_tx_buf_read + i) & (BIDIB_TX_BUF_SIZE - 1)]);
+                    }
+                    printf("\n");
 
-                     pio_sm_put(s_pio, s_sm_tx, (uint32_t)size);  // ← kickstart : émet le length
-                    irq_set_enabled(PIO0_IRQ_1, true);            // ← démarre l'ISR
+
+                    pio_sm_put(s_pio, s_sm_tx, (uint32_t)plength);
+                    irq_set_enabled(PIO0_IRQ_1, true);
                 } else {
                     tx_nak_mode = true;
                     pio_sm_put(s_pio, s_sm_tx, 0x000);
-                    irq_set_enabled(PIO0_IRQ_1, true);  // ← comme la version précédent
-                }    
+                    irq_set_enabled(PIO0_IRQ_1, true);
                 }
+            }   
+                
             }
         }
     }
