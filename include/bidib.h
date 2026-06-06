@@ -51,6 +51,11 @@ extern volatile bool tx_mode_logon;
 extern uint8_t my_addr_stack[4];
 extern uint8_t my_addr_depth;
 extern uint8_t bidib_tx0_msg_num;
+
+extern volatile uint8_t bidib_tx_buf_write;
+extern volatile uint8_t bidib_tx_buf_read;
+extern volatile uint8_t bidib_tx_ahead;
+
 // ─────────────────────────────────────────────────
 // API publique
 // ─────────────────────────────────────────────────

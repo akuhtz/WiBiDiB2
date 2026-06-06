@@ -41,7 +41,7 @@
 #include "bidib_messages.h"
 #include "bidib_client_if.h"
 #include "crc_8bit.h"
-
+#include "config.h"
 extern uint8_t g_bidib_connect;
 
 // ─── Buffers ─────────────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ volatile uint8_t bidib_tx_fill      = 0;      // octets en attente (non encore c
 volatile uint8_t bidib_tx_remaining = 0;      // octets en cours d'envoi par ISR
 
 #if (BIDIB_TX_BUF_USE_AHEAD == 1)
-uint8_t bidib_tx_ahead = 0;
+volatile uint8_t bidib_tx_ahead = 0;
 #endif
 volatile uint8_t bidib_tx_crc = 0;
 
@@ -147,31 +147,36 @@ bool bidib_tx_fifo_healthy(void) {
 // Appelé par send_bidib_message() dans bidib_client_parser.c
 //
 bool bidib_tx_fifo_put(uint8_t *new_message) {
-    if (g_bidib_connect != BIDIB_CONNECTED) return true;  // pas connecté → ignorer
+    if (g_bidib_connect != BIDIB_CONNECTED) return true;
 
-    uint8_t size = new_message[0];   // nombre d'octets du message (sans size)
-    uint8_t total = size + 1;        // size + message
+    uint8_t size  = new_message[0];
+    uint8_t total = size + 1;  // size + message
+
+  #if (DEBUG == 1)  
+    static uint8_t call_count = 0;
+    call_count++;
+    printf("[tx_put#%d] read=%d write=%d ahead=%d size=%d\n", 
+       call_count, bidib_tx_buf_read, bidib_tx_buf_write, bidib_tx_ahead, size);
+#endif
+    uint32_t s = bidib_enter_critical();
 
     // Vérifier place disponible
-    uint32_t s = bidib_enter_critical();
-    if ((bidib_tx_fill + bidib_tx_remaining + total) > BIDIB_TX_BUF_SIZE) {
+    if ((bidib_tx_ahead + total) > BIDIB_TX_BUF_SIZE) {
         bidib_exit_critical(s);
         printf("[bidib_if] TX fifo full!\n");
         return false;
     }
 
-    // Copier dans le buffer circulaire : [size][addr][mnum][type][data...]
+    // Copier message dans le fifo
     for (uint8_t i = 0; i <= size; i++) {
         bidib_tx_buf[bidib_tx_buf_write] = new_message[i];
         bidib_tx_buf_write = (bidib_tx_buf_write + 1) & (BIDIB_TX_BUF_SIZE - 1);
     }
-
-    bidib_tx_fill += total;
-    bidib_exit_critical(s);
-
+     bidib_tx_ahead += total;  // une seule fois
+    
+       bidib_exit_critical(s);
     return true;
 }
-
 // ─── Numéro de séquence ───────────────────────────────────────────────────────
 // Identique get_tx_num() Atmel
 
@@ -205,8 +210,9 @@ void bidib_prepare_tx_logon(void) {
     for (int i = 0; i < BIDIB_SIZE_OF_LOGON_MSG; i++)
         crc = crc8_update(crc, bidib_tx_buf[i]);
     bidib_tx_buf[idx++] = crc;
-
+#if (DEBUG == 1)
     printf("[bidib_if] logon prepared, crc=0x%02X, total=%d bytes\n", crc, idx);
+#endif
 }
 
 // ─── Flush buffers ────────────────────────────────────────────────────────────
@@ -225,9 +231,7 @@ void bidib_flush_tx(void) {
     bidib_tx_buf_write = BIDIB_SIZE_OF_LOGON_MSG + 1;  // réservé pour logon
     bidib_tx_remaining = 0;
     bidib_tx_fill      = 0;
-#if (BIDIB_TX_BUF_USE_AHEAD == 1)
     bidib_tx_ahead     = 0;
-#endif
     bidib_exit_critical(s);
     bidib_prepare_tx_logon();
 }

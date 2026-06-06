@@ -78,9 +78,9 @@ static void bidib_prepare_logon_buf(void)
     for (int i = 0; i < 11; i++)
         tx_buf[idx++] = msg[i];
     tx_buf[idx++] = crc;
-
+#if (DEBUG == 1)
     printf("logon buf: plength=0x%02X crc=0x%02X\n", plength, crc);
-    
+  #endif  
 }
 
 #define BIDIB_LOGON_MSG_SIZE 13
@@ -102,8 +102,8 @@ static void __not_in_flash_func(bidib_pio_tx_isr)(void)
             irq_set_enabled(PIO0_IRQ_1, false);
             tx_mode_logon = false;
             uint32_t s = save_and_disable_interrupts();
-            bidib_tx_buf_read  = BIDIB_SIZE_OF_LOGON_MSG + 1;  // 12 — après le logon
-            // bidib_tx_buf_write reste inchangé — données déjà écrites
+            bidib_tx_buf_read  = BIDIB_SIZE_OF_LOGON_MSG + 1;  // 12
+            bidib_tx_ahead     = 0;
             bidib_tx_remaining = 0;
             restore_interrupts(s);
         }
@@ -238,36 +238,30 @@ static void __not_in_flash_func(bidib_pio_rx_isr)(void)
                     }
                 }
             } else {
-               // Poll
-                if (byte == my_bidib_node_addr) {  
-                    busy_wait_us_32(1);
-                    gpio_put(BIDIB_PIN_DE, 1);
-                 } else {
-            gpio_put(BIDIB_PIN_DE, 0);
-            irq_set_enabled(PIO0_IRQ_1, false);
-            tx_mode_logon = false;
-            uint32_t s = save_and_disable_interrupts();
-            bidib_tx_buf_read  = 0;
-            bidib_tx_buf_write = 0;
-            bidib_tx_ahead     = 0;  // ← remplace bidib_tx_fill
-            bidib_tx_remaining = 0;
-            restore_interrupts(s);
-        }
-                    for (uint8_t i = 0; i < 9; i++) {
-                        printf("%02X ", bidib_tx_buf[(bidib_tx_buf_read + i) & (BIDIB_TX_BUF_SIZE - 1)]);
-                    }
-                    printf("\n");
-
-
-                    pio_sm_put(s_pio, s_sm_tx, (uint32_t)plength);
+                // Poll
+                if (byte == my_bidib_node_addr) {   
+                busy_wait_us_32(1);
+                gpio_put(BIDIB_PIN_DE, 1);
+              //  printf("poll: read=%d write=%d ahead=%d\n",
+              //      bidib_tx_buf_read, bidib_tx_buf_write, bidib_tx_ahead);
+                if (bidib_tx_ahead > 0 && !tx_mode_logon) {
+                    uint8_t plength     = bidib_tx_ahead;
+                    tx_parser_index     = bidib_tx_buf_read;
+                    tx_parser_remaining = plength;
+                    tx_parser_crc       = crc8_update(0, plength);
+                    bidib_tx_buf_read   = (bidib_tx_buf_read + plength) & (BIDIB_TX_BUF_SIZE - 1);
+                    bidib_tx_ahead      = 0;
+                #if (DEBUG == 1)
+                   printf("emit: parser_index=%d remaining=%d\n", tx_parser_index, tx_parser_remaining);
+                 #endif  
+                   pio_sm_put(s_pio, s_sm_tx, (uint32_t)plength);
                     irq_set_enabled(PIO0_IRQ_1, true);
                 } else {
                     tx_nak_mode = true;
                     pio_sm_put(s_pio, s_sm_tx, 0x000);
-                    irq_set_enabled(PIO0_IRQ_1, true);
+                    irq_set_enabled(PIO0_IRQ_1, true);  // ← comme la version précédent    
                 }
-            }   
-                
+                }
             }
         }
     }
@@ -280,7 +274,6 @@ void bidib_init(void)
 {
     printf("bidib_init\n");
     
-
     bidib_prepare_logon_buf();
 
     gpio_init(BIDIB_PIN_DE);
@@ -297,11 +290,11 @@ void bidib_init(void)
 
     bidib_uart_rx_init(s_pio, s_sm_rx, offset_rx, BIDIB_PIN_RX, BIDIB_BAUD);
     bidib_uart_tx_init(s_pio, s_sm_tx, offset_tx, BIDIB_PIN_TX, BIDIB_BAUD);
-
+#if (DEBUG == 1)
     printf("RX offset=%d pin=%d clkdiv=%.2f\n",
            offset_rx, BIDIB_PIN_RX,
            (float)clock_get_hz(clk_sys) / (BIDIB_BAUD * 8.0f));
-
+#endif
 
     // Purger IRQ résiduelles
     pio_interrupt_clear(s_pio, 0);

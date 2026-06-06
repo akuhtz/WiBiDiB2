@@ -82,14 +82,12 @@ static inline uint32_t get_tick_ms(void) {
 
 // Helper générique — construit l'en-tête dans buf, retourne l'offset des data
 static uint8_t bidib_build_header(uint8_t *buf, uint8_t msg_type, uint8_t nb_data) {
-    uint8_t i = 0;
-    buf[i++] = my_addr_depth + 1 + 1 + 1 + nb_data;  // size
-    for (uint8_t j = 0; j < my_addr_depth; j++)
-        buf[i++] = my_addr_stack[j];                   // adresses
-    buf[i++] = 0x00;                                   // terminateur
-    buf[i++] = bidib_get_tx_num();                     // index
-    buf[i++] = msg_type;                               // type
-    return i;                                          // offset pour les data
+  uint8_t i = 0;
+    buf[i++] = 1 + 1 + 1 + nb_data;  // addr + index + type + data
+    buf[i++] = 0x00;              // addr vers le maître, toujours 0
+    buf[i++] = bidib_get_tx_num(); // index
+    buf[i++] = msg_type;           // type
+    return i;                      // offset pour les data
 }
 // ─── send_bidib_message() ────────────────────────────────────────────────────
 // Point d'entrée unique pour envoyer un message BiDiB
@@ -114,10 +112,11 @@ static void bidib_send_sys_magic(void) {
     message[i++] = 0xFE;
     message[i++] = 0xAF;
   //  message.header.size = my_addr_depth + 1 + 1 + 1 + 2; // addr + term + index + type + data
+ #if (DEBUG == 1)
   uint8_t *p = (uint8_t *)&message;
-printf("magic raw: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+    printf("magic raw: %02X %02X %02X %02X %02X %02X %02X %02X\n",
         p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
-  
+ # endif
     send_bidib_message((uint8_t *)&message);
 }    
 
@@ -197,7 +196,10 @@ void set_bidib_state(uint8_t neu, uint8_t assigned_addr) {
     if (neu == g_bidib_connect) return;
 
     g_bidib_connect = neu;
+    #if (DEBUG == 1)
+
     printf("[bidib_parser] state → %d\n", g_bidib_connect);
+    #endif
 
     switch (g_bidib_connect) {
         default:
@@ -207,24 +209,32 @@ void set_bidib_state(uint8_t neu, uint8_t assigned_addr) {
             bidib_flush_rx();
             bidib_flush_tx();
             bidib_rx_state = BIDIB_IDLE;
-            printf("[bidib_parser] DISCONNECTED\n");
+            #if (DEBUG == 1)
+                printf("[bidib_parser] DISCONNECTED\n");
+            #endif
             break;
 
         case BIDIB_APPLIED:
-            printf("[bidib_parser] APPLIED — logon sent, waiting ACK\n");
+            #if (DEBUG == 1)
+                printf("[bidib_parser] APPLIED — logon sent, waiting ACK\n");
+            #endif
             break;
 
         case BIDIB_CONNECTED:
             my_bidib_node_addr = assigned_addr;
             bidib_active_timestamp = get_tick_ms();
-            printf("[bidib_parser] CONNECTED — node_addr=0x%02X\n",
+            #if (DEBUG == 1)
+                printf("[bidib_parser] CONNECTED — node_addr=0x%02X\n",
                    my_bidib_node_addr);
+            #endif
             break;
 
         case BIDIB_REJECTED:
             my_bidib_node_addr     = 0xFF;
             g_bidib_spontan_enabled = false;
-            printf("[bidib_parser] REJECTED\n");
+            #if (DEBUG == 1)
+                printf("[bidib_parser] REJECTED\n");
+            #endif
             break;
     }
 }
@@ -243,7 +253,9 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
 
     length = *bidib_rx_msg++;
     if ((length == 0) || (length & 0x80)) {
-        printf("[bidib_parser] invalid message length: %d\n", length);
+        #if (DEBUG == 1)
+            printf("[bidib_parser] invalid message length: %d\n", length);
+        #endif  
         return 128;
     }
 
@@ -261,8 +273,10 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
 
         // Vérification séquence
         if (*bidib_rx_msg != bidib_rx_msg_num) {
+#if (DEBUG == 1)
             printf("[bidib_parser] sequence resync: expected %d got %d\n",
                    bidib_rx_msg_num, *bidib_rx_msg);
+#endif
             bidib_rx_msg_num = *bidib_rx_msg;
         }
         bidib_rx_msg_num++;
@@ -275,8 +289,10 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
     // Pointer sur le type de message
     msg_type = bidib_rx_msg;
 
-    printf("[bidib_parser] rx msg type=0x%02X addr=[%d]\n", 
-           *msg_type, addr_stack[0]);
+    #if (DEBUG == 1)
+        printf("[bidib_parser] rx msg type=0x%02X addr=[%d]\n", 
+               *msg_type, addr_stack[0]);
+    #endif
 
     switch (*msg_type) {
 
@@ -286,7 +302,9 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             gpio_put(BIDIB_PIN_TEST , 1);
             busy_wait_us_32(4);
             gpio_put(BIDIB_PIN_TEST , 0);
+     #if (DEBUG == 1)       
         printf("addr_stack=%02X depth=%d\n", my_addr_stack[0], my_addr_depth);
+    #endif
           bidib_send_sys_magic();
 
             break;
@@ -391,8 +409,9 @@ static void bidib_parser(void) {
     gpio_put(BIDIB_PIN_TEST , 1);
     busy_wait_us_32(8);
     gpio_put(BIDIB_PIN_TEST , 0);
+ #if (DEBUG == 1)
     printf("[bidib_parser] parsing packet, total=%d\n", bidib_rx_total);
-
+#endif
     while (bidib_rx_index < bidib_rx_total) {
         uint8_t consumed = process_bidib_message(
             &bidib_rx_paket[bidib_rx_index]);
@@ -410,7 +429,9 @@ void run_bidib_client(void) {
     static uint32_t last = 0;
     if ((now - last) > 2000) {
     last = now;
- //   printf("[state] fill=%d logon=%d\n", bidib_tx_fill, tx_mode_logon);
+ #if (DEBUG == 1)
+    printf("[state] fill=%d logon=%d\n", bidib_tx_fill, tx_mode_logon);
+#endif
     }
     // ── 1. Watchdog connexion ─────────────────────────────────────────────────
     if (g_bidib_connect == BIDIB_CONNECTED) {
@@ -448,7 +469,9 @@ void run_bidib_client(void) {
                     gpio_put(BIDIB_PIN_TEST , 1);
                     busy_wait_us_32(2);
                     gpio_put(BIDIB_PIN_TEST , 0);
-                    printf(" GL %02x crc %02x ", byte, bidib_rx_crc);
+                    #if (DEBUG == 1)
+                        printf(" GL %02x crc %02x ", byte, bidib_rx_crc);
+                    #endif
                 } else {
                     bidib_rx_state = BIDIB_IDLE;
                 }
@@ -463,7 +486,9 @@ void run_bidib_client(void) {
                     // Octet de données
                     if (bidib_rx_index < 64) {
                         bidib_rx_paket[bidib_rx_index] = byte;
-                        printf("%02x ", byte);
+                        #if (DEBUG == 1)
+                            printf("%02x ", byte);
+                        #endif
                     }
                     bidib_rx_crc = crc8_update(bidib_rx_crc, byte);
                     bidib_rx_index++;

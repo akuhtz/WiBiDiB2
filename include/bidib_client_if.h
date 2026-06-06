@@ -75,7 +75,7 @@ extern volatile uint8_t  bidib_tx_buf_write;
 extern volatile uint8_t  bidib_tx_fill;
 extern volatile uint8_t  bidib_tx_remaining;
 #if (BIDIB_TX_BUF_USE_AHEAD == 1)
-extern uint8_t           bidib_tx_ahead;
+extern volatile uint8_t           bidib_tx_ahead;
 #endif
 
 extern uint16_t bidib_rx_buf[BIDIB_RX_BUF_SIZE];

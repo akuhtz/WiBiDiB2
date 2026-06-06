@@ -229,6 +229,7 @@ void send_msg(struct tcp_pcb *pcb, int len, const char *msg) {
     for (int j = 0; j < len; j++) printf("%02X:", (uint8_t)msg[j]);
     printf("\n");
 
+
     err_t err = tcp_write(pcb, msg, (u16_t)len, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK) {
         printf("[send_msg] tcp_write error: %d len=%d\n", err, len);
