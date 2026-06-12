@@ -10,6 +10,13 @@ static inline uint32_t bidib_enter_critical(void) {
 static inline void bidib_exit_critical(uint32_t state) {
     restore_interrupts(state);
 }
+
+static inline uint32_t get_tick_ms(void) {
+    return (uint32_t)(time_us_64() / 1000ULL);
+}
+
+extern uint64_t last_poll_us;
+
 // ─────────────────────────────────────────────────
 // Pins
 // ─────────────────────────────────────────────────

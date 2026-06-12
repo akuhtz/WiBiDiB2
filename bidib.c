@@ -10,6 +10,7 @@
 #include "hardware/pio.h"
 #include "hardware/irq.h"
 #include "hardware/gpio.h"
+#include "hardware/timer.h" 
 #include <stdio.h>
 #include "bidib_uart.pio.h"
 #include "bidib.h"
@@ -242,8 +243,7 @@ static void __not_in_flash_func(bidib_pio_rx_isr)(void)
                 if (byte == my_bidib_node_addr) {   
                 busy_wait_us_32(1);
                 gpio_put(BIDIB_PIN_DE, 1);
-              //  printf("poll: read=%d write=%d ahead=%d\n",
-              //      bidib_tx_buf_read, bidib_tx_buf_write, bidib_tx_ahead);
+                last_poll_us = time_us_64();
                 if (bidib_tx_ahead > 0 && !tx_mode_logon) {
                     uint8_t plength     = bidib_tx_ahead;
                     tx_parser_index     = bidib_tx_buf_read;

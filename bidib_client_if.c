@@ -42,8 +42,9 @@
 #include "bidib_client_if.h"
 #include "crc_8bit.h"
 #include "config.h"
-extern uint8_t g_bidib_connect;
 
+extern uint8_t g_bidib_connect;
+uint64_t last_poll_us = 0;
 // ─── Buffers ─────────────────────────────────────────────────────────────────
 
 // TX : buffer circulaire pour les messages à envoyer

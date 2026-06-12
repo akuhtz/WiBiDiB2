@@ -34,6 +34,7 @@
 #include "crc_8bit.h"
 #include "config.h"
 #include "crc_8bit.h"
+#include "hardware/timer.h" 
 
 // ─── Variables globales ───────────────────────────────────────────────────────
 
@@ -55,6 +56,7 @@ static uint8_t bidib_rx_msg_num = 0;
 // UID unique du nœud (défini dans bidib.c / smartphone_if.c)
 extern const uint8_t MyUniqueID[7];
 
+
 // ─── Buffer de réception de paquets ──────────────────────────────────────────
 // Un paquet BiDiB = PLENGTH + messages + CRC
 static uint8_t  bidib_rx_paket[64];
@@ -71,14 +73,10 @@ typedef enum {
 
 static bidib_rx_state_t bidib_rx_state = BIDIB_IDLE;
 
-// Timestamp pour watchdog connexion
-static uint32_t bidib_active_timestamp = 0;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-static inline uint32_t get_tick_ms(void) {
-    return (uint32_t)(time_us_64() / 1000ULL);
-}
+
 
 // Helper générique — construit l'en-tête dans buf, retourne l'offset des data
 static uint8_t bidib_build_header(uint8_t *buf, uint8_t msg_type, uint8_t nb_data) {
@@ -222,11 +220,9 @@ void set_bidib_state(uint8_t neu, uint8_t assigned_addr) {
 
         case BIDIB_CONNECTED:
             my_bidib_node_addr = assigned_addr;
-            bidib_active_timestamp = get_tick_ms();
-            #if (DEBUG == 1)
-                printf("[bidib_parser] CONNECTED — node_addr=0x%02X\n",
-                   my_bidib_node_addr);
-            #endif
+            bidib_rx_msg_num = 0;
+            bidib_tx0_msg_num = 0;
+            last_poll_us = time_us_64();  // ← initialiser ici
             break;
 
         case BIDIB_REJECTED:
@@ -425,31 +421,26 @@ static void bidib_parser(void) {
 // Équivalent de la t_cr_task Atmel — sans cortos
 
 void run_bidib_client(void) {
-    uint32_t now = get_tick_ms();
-    static uint32_t last = 0;
-    if ((now - last) > 2000) {
-    last = now;
- #if (DEBUG == 1)
-    printf("[state] fill=%d logon=%d\n", bidib_tx_fill, tx_mode_logon);
-#endif
-    }
-    // ── 1. Watchdog connexion ─────────────────────────────────────────────────
+  
+  // -- 1. Check connected
+  // utilisez now_ms() pour le test de timeout, et pas time_us_64() directement pour éviter overflow
     if (g_bidib_connect == BIDIB_CONNECTED) {
-        if ((now - bidib_active_timestamp) > 5000) {
-            // Pas de message depuis 5s → déconnexion
-            printf("[bidib_parser] timeout → DISCONNECTED\n");
+        uint32_t now = now_ms();
+        uint32_t last_ms = (uint32_t)(last_poll_us / 1000ULL);
+
+        if (now > last_ms && (now - last_ms) > 500) {
+            printf("[timeout] now=%lu last=%lu diff=%lu\n", now, last_ms, now - last_ms);
             set_bidib_state(BIDIB_DISCONNECTED, 0);
+            last_poll_us = time_us_64();
         }
     }
 
+   
     // ── 2. Lecture du buffer RX et assemblage des paquets ────────────────────
     while (bidib_rx_ready()) {
         uint16_t raw    = bidib_rx_read();
         uint8_t  byte   = (uint8_t)(raw & 0xFF);
         uint8_t  id_bit = (uint8_t)((raw >> 8) & 0x01);
-
-        // Mise à jour timestamp activité
-        bidib_active_timestamp = now;
 
         switch (bidib_rx_state) {
             case BIDIB_IDLE:
@@ -530,7 +521,6 @@ void init_bidib_client(void) {
     bidib_rx_state          = BIDIB_IDLE;
     bidib_rx_index          = 0;
     bidib_rx_msg_num        = 0;
-    bidib_active_timestamp  = 0;
     init_bidib_client_if();
     printf("[bidib_parser] init done\n");
 }
