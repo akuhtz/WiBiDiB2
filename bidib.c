@@ -99,7 +99,13 @@ static void __not_in_flash_func(bidib_pio_tx_isr)(void)
             tx_remaining--;
             pio_sm_put(s_pio, s_sm_tx, (uint32_t)w);
         } else {
+            while (!pio_sm_is_tx_fifo_empty(s_pio, s_sm_tx))
+            tight_loop_contents();
+            busy_wait_us_32(20);  // temps de sérialisation du dernier mot (start+8bits+stop ≈ 18-20µs à 500kbaud)
             gpio_put(BIDIB_PIN_DE, 0);
+            gpio_put(BIDIB_PIN_TEST, 1);
+            busy_wait_us_32(2);
+            gpio_put(BIDIB_PIN_TEST, 0);
             irq_set_enabled(PIO0_IRQ_1, false);
             tx_mode_logon = false;
             uint32_t s = save_and_disable_interrupts();
@@ -114,7 +120,7 @@ static void __not_in_flash_func(bidib_pio_tx_isr)(void)
         while (!pio_sm_is_tx_fifo_empty(s_pio, s_sm_tx))
             tight_loop_contents();
         busy_wait_us_32(25);
-        gpio_put(BIDIB_PIN_DE, 0);
+        gpio_put(BIDIB_PIN_DE, 0);   
         irq_set_enabled(PIO0_IRQ_1, false);
         return;
     }
@@ -157,6 +163,9 @@ static void __not_in_flash_func(bidib_start_tx)(void)
     tx_index     = 0;
     tx_remaining = BIDIB_LOGON_MSG_SIZE - 1;
     gpio_put(BIDIB_PIN_DE, 1);
+    gpio_put(BIDIB_PIN_TEST , 1);
+            busy_wait_us_32(2);
+        gpio_put(BIDIB_PIN_TEST , 0); 
     pio_sm_put(s_pio, s_sm_tx, (uint32_t)tx_buf[tx_index++]);
     irq_set_enabled(PIO0_IRQ_1, true);
 }
@@ -176,7 +185,7 @@ void bidib_start_parser_tx(void)
 
     bidib_exit_critical(s);
 
-    gpio_put(BIDIB_PIN_DE, 1);
+    gpio_put(BIDIB_PIN_DE, 1); 
     // Kickstart : premier octet manuel
     uint8_t first = bidib_tx_buf[tx_parser_index];
     tx_parser_index     = (tx_parser_index + 1) & (BIDIB_TX_BUF_SIZE - 1);
