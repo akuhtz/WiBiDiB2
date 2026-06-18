@@ -140,16 +140,45 @@ static void bidib_send_sys_unique_id(void) {
     send_bidib_message((uint8_t *)&message);
 }
 
+static void bidib_send_sw_version(void) {
+    uint8_t message[10];
+    uint8_t i = bidib_build_header(message, MSG_SYS_SW_VERSION, 3);
+    message[i++] = 0x00;  // patch
+    message[i++] = 0x01;  // minor
+    message[i++] = 0x00;  // major
+    send_bidib_message(message);
+}
+
 static void bidib_send_sys_pversion(void) {
-    t_node_message2 message;
-   memcpy(message.header.addr_stack, my_addr_stack, 4);
-    message.header.terminator = 0x00;
-    message.header.index     = bidib_get_tx_num();
-    message.header.msg_type  = MSG_SYS_P_VERSION;
-    message.data[0] = 0;    // version majeure
-    message.data[1] = 7;    // version mineure (BiDiB 0.7)
-    message.header.size = my_addr_depth + 1 + 1 + 1 + 2; // addr + term + index + type + data
-    send_bidib_message((uint8_t *)&message);
+    uint8_t message[8];
+    uint8_t i = bidib_build_header(message, MSG_SYS_P_VERSION, 2);
+    message[i++] = 0x07;  // version mineure BiDiB 0.7
+    message[i++] = 0x00;  // version majeure
+    send_bidib_message(message);
+}
+
+static void bidib_send_feature_count(uint8_t count) {
+    uint8_t message[8];
+    uint8_t i = bidib_build_header(message, MSG_FEATURE_COUNT, 1);
+    message[i++] = count;
+    send_bidib_message(message);
+}
+
+static void bidib_send_nodetab_count(void) {
+    uint8_t message[8];
+    uint8_t i = bidib_build_header(message, MSG_NODETAB_COUNT, 1);
+    message[i++] = 1;  // 1 nœud — le Pico lui-même
+    send_bidib_message(message);
+}
+
+static void bidib_send_nodetab(void) {
+    uint8_t message[16];
+    uint8_t i = bidib_build_header(message, MSG_NODETAB, 9);
+    message[i++] = 1;           // version table
+    message[i++] = 0;           // addr = 0 (lui-même)
+    for (uint8_t j = 0; j < 7; j++)
+        message[i++] = MyUniqueID[j];  // UID[7]
+    send_bidib_message(message);
 }
 
 static void bidib_send_error(uint8_t error_num, uint8_t error_para) {
@@ -294,21 +323,38 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
 
         // ── Système ──────────────────────────────────────────────────────────
         case MSG_SYS_GET_MAGIC:
-            
+            /*
             gpio_put(BIDIB_PIN_TEST , 1);
             busy_wait_us_32(4);
             gpio_put(BIDIB_PIN_TEST , 0);
-     #if (DEBUG == 1)       
+            */
+        #if (DEBUG == 1)       
         printf("addr_stack=%02X depth=%d\n", my_addr_stack[0], my_addr_depth);
-    #endif
+        #endif
           bidib_send_sys_magic();
 
             break;
 
+        case MSG_SYS_GET_SW_VERSION:   // 0x06
+            bidib_send_sw_version();
+            break;
+                
         case MSG_SYS_GET_P_VERSION:
             bidib_send_sys_pversion();
             break;
 
+        case MSG_FEATURE_GETALL:   // 0x10
+            bidib_send_feature_count(0);  // 0 features pour l'instant
+            break;
+
+        case MSG_NODETAB_GETALL:   // 0x0B
+            bidib_send_nodetab_count();
+            break;
+
+        case MSG_NODETAB_GETNEXT:  // 0x0C
+            bidib_send_nodetab();
+            break;
+            
         case MSG_SYS_PING:
             bidib_send_sys_pong(msg_type[1]);   
             break;

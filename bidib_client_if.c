@@ -75,6 +75,9 @@ uint8_t bidib_tx0_msg_num = 0;
 
 void set_bidib_to_receive(void) {
     gpio_put(BIDIB_PIN_DE, 0);   // DE=0 → RX  
+    gpio_put(BIDIB_PIN_TEST , 1);
+            busy_wait_us_32(8);
+    gpio_put(BIDIB_PIN_TEST , 0);
 }
 
 void set_bidib_to_transmit(void) {
