@@ -29,8 +29,8 @@ bool send_bidib_message(uint8_t *message);
 
 // Commande de traction : vitesse + direction + fonctions F0..F28
 // speed = 0..126, ou -1 pour emergency stop
-void bidib_send_cs_drive(uint16_t dcc_addr, int speed, uint8_t dir,
-                         int f[29]);
+void bidib_send_cs_drive(uint16_t dcc_addr, int speed, uint8_t dir, 
+    int f[29], uint8_t active);
 
 // Alimentation voie : on=1 (PPA1), on=0 (PPA0)
 void bidib_send_boost_state(uint8_t on);

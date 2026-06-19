@@ -57,6 +57,7 @@ static int     Throttle_g = 0;
 // ─── throttle_stop() ─────────────────────────────────────────────────────────
 void throttle_stop(uint8_t slot) {
     printf("[withrottle_if] throttle_stop slot %d\n", slot);
+    
     heartbeatEnable[slot] = false;
     heartbeat[slot]       = 0;
     Loco[slot].newSpeed   = 0;
@@ -134,7 +135,8 @@ static void locoAdd(const char *th, const char *ak, uint8_t slot) {
     send_msg(pcb, length_msg, msg);
 
     tcp_output(pcb);
-    printf("[withrottle_if] locoAdd %s dcc=%d\n", ak, Loco[slot].dccAdress);
+   // printf("[withrottle_if] locoAdd %s Adress=%d\n", ak, Loco[slot].dccAdress);
+    LOG_INFO(TAG,"locoAdd %d dccAdress=%02x ",  ak, Loco[slot].dccAdress);
 }
 
 // ─── locoRelease() ───────────────────────────────────────────────────────────
@@ -166,7 +168,8 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
     char    tmp[20]     = {};
     char    locoAddress[10] = {};
 
-    printf("[withrottle_if] locoAction th=%s ak=%s\n", th, ak);
+  //  printf("[withrottle_if] locoAction th=%s ak=%s\n", th, ak);
+    LOG_INFO(TAG,"locoAction th=%s ak=%s", th, ak );
     snprintf(locoAddress, sizeof(locoAddress), "%d", Loco[slot].dccAdress);
 
     // '*' : remplacer par l'actionKey réelle sauvegardée
@@ -200,8 +203,16 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
         send_msg(pcb, length_msg, msg);
         tcp_output(pcb);
 
-        bidib_send_cs_drive(Loco[slot].dccAdress, Loco[slot].newSpeed,
-                        Loco[slot].dir, Loco[slot].LocoState);
+        // Calculer active selon fk
+            uint8_t active = BIDIB_CS_DRIVE_SPEED_BIT;  // toujours speed
+            if (fk <= 4)  active |= BIDIB_CS_DRIVE_F0F4_BIT;
+            else if (fk <= 8)  active |= BIDIB_CS_DRIVE_F5F8_BIT;
+            else if (fk <= 12) active |= BIDIB_CS_DRIVE_F9F12_BIT;
+            else if (fk <= 20) active |= BIDIB_CS_DRIVE_F13F20_BIT;
+            else               active |= BIDIB_CS_DRIVE_F21F28_BIT;
+
+            bidib_send_cs_drive(Loco[slot].dccAdress, Loco[slot].newSpeed,
+                    Loco[slot].dir, Loco[slot].LocoState, active);
         
     }
 
@@ -234,7 +245,14 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
     else if (ak[0] == 'V') {
         int spd = (int)strtol(ak + 1, NULL, 10);
         Loco[slot].newSpeed = spd;
-        bidib_send_cs_drive(Loco[slot].dccAdress, spd, Loco[slot].dir, Loco[slot].LocoState);
+        uint8_t active = 1;
+        LOG_INFO(TAG," <- slot %02x speed %02x ", slot, Loco[slot].newSpeed );
+    gpio_put(BIDIB_PIN_TEST , 1);
+    busy_wait_us_32(4);
+gpio_put(BIDIB_PIN_TEST , 0);
+      bidib_send_cs_drive(Loco[slot].dccAdress, Loco[slot].newSpeed,Loco[slot].dir,
+            Loco[slot].LocoState,   // LocoState[29];      // état F0..F28
+            active );
         // Renvoyer V confirmée au smartphone
     }
 
@@ -243,8 +261,10 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
         int dir = (int)strtol(ak + 1, NULL, 10);
         Loco[slot].dir      = dir;
         Loco[slot].newSpeed = 0;
-        bidib_send_cs_drive(Loco[slot].dccAdress, 0, dir, Loco[slot].LocoState);
-
+        uint8_t active = 1;
+             bidib_send_cs_drive(Loco[slot].dccAdress, Loco[slot].newSpeed,Loco[slot].dir,
+            Loco[slot].LocoState,   // LocoState[29];      // état F0..F28
+            active );
         // Renvoyer V0 au smartphone
         memset(msg, 0, sizeof(msg));
         msg[0]='M'; length_msg=1;
@@ -260,16 +280,19 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
         tcp_output(pcb);
     }
 
-    // ── X : emergency stop ────────────────────────────────────────────────────
+    // ── X : emergency stop ────RUN_STOP,     // DCC Running, all Engines Emergency Stop────────────────────────────
     else if (ak[0] == 'X') {
-        Loco[slot].newSpeed = 0;
-       bidib_send_cs_drive(Loco[slot].dccAdress, -1, Loco[slot].dir, Loco[slot].LocoState);
+        // Xpressnet command 0x81 0x00 0x81 "Everything stopped (emergency stop)"
+        //       set_command_station_status(STS_STOP);
     }
 
     // ── I : idle ──────────────────────────────────────────────────────────────
     else if (ak[0] == 'I') {
+        uint8_t active = 1;
         Loco[slot].newSpeed = 0;
-        bidib_send_cs_drive(Loco[slot].dccAdress, 0, Loco[slot].dir, Loco[slot].LocoState);
+         bidib_send_cs_drive(Loco[slot].dccAdress, Loco[slot].newSpeed,Loco[slot].dir,
+            Loco[slot].LocoState,   // LocoState[29];      // état F0..F28
+            active );
     }
 
     // ── Q : quit loco ─────────────────────────────────────────────────────────
@@ -362,8 +385,8 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
 
     // ── 'M' multithrottle ────────────────────────────────────────────────────
     else if (data->msg[0] == 'M') {
-        printf("[withrottle_if] case M\n");
-
+      //  printf("[withrottle_if] case M\n");
+        LOG_INFO(TAG," case M ");
         char th[3] = {};
         th[0] = data->msg[1];  // '0' pour Engine Driver
 
@@ -399,9 +422,11 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
         if (action == '+') {
             int k = (int)strtol(LocoAdress_g, NULL, 10);
             Loco[slot].dccAdress = k;
-            printf("[withrottle_if] locoAdd th=%s ak=%s dcc=%d slot=%d\n",
-                   th, actionKey_g, k, slot);
-            locoAdd(th, actionKey_g, slot);
+           // printf("[withrottle_if] locoAdd th=%s ak=%s dcc=%d slot=%d\n",
+           //       th, actionKey_g, k, slot);
+            LOG_INFO(TAG," locoAdd th=%s ak=%s dcc=%d slot=%d", th, actionKey_g, k, slot );
+            
+                   locoAdd(th, actionKey_g, slot);
         }
 
         // ── '-' : release loco ────────────────────────────────────────────────
@@ -421,14 +446,15 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
         LOG_INFO(TAG, "Q: client quit, slot %d", slot);
         throttle_stop(slot);
     }
-
+/*
     // ── Vérification changement de vitesse ───────────────────────────────────
     if (Loco[slot].newSpeed != Loco[slot].oldSpeed) {
         Loco[slot].oldSpeed = Loco[slot].newSpeed;
-        
-        bidib_send_cs_drive(Loco[slot].dccAdress, Loco[slot].newSpeed, Loco[slot].dir, Loco[slot].LocoState);
+        uint8_t active = 1;
+        bidib_send_cs_drive(Loco[slot].dccAdress, Loco[slot].newSpeed, Loco[slot].dir,
+             Loco[slot].LocoState, active);
     }
-
+*/
     // ── Heartbeat watchdog ────────────────────────────────────────────────────
     if (heartbeatEnable[slot]) checkHeartbeat(slot);
 }

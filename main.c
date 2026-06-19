@@ -18,21 +18,23 @@
 #include "tcp_server.h"
 #include "smartphone_if.h"
 #include "bidib_client_parser.h"
+#include "config.h"
+
+static const char *TAG = "main";
 
 int main(void)
 {
     stdio_init_all();
     sleep_ms(3000);  // attendre USB serial
-
-    printf("=== BIDIBrc Pico 2W v0.2 ===\n");
+    LOG_INFO(TAG,"=== WI_BIDIB_ED Pico 2W v0.2 ===");
     stdio_flush();
 
     // ── BiDiB PIO (inchangé) ──────────────────────────────────────────────────
     // ISR RX/TX enregistrées dans bidib_init(), tournent en hardware
     bidib_init();
-    printf("BiDiB PIO OK\n");
+    LOG_INFO(TAG,"BiDiB PIO OK");
     init_bidib_client();
-    printf("BiDiB client init OK\n");
+    LOG_INFO(TAG,"BiDiB client init OK");
 
     // ── WiFi AP + TCP WiThrottle ──────────────────────────────────────────────
     smartphone_if_init();   // init table throttle[] + UID BiDiB
@@ -44,7 +46,7 @@ int main(void)
         if (!tcp_server_init()) {
             printf("TCP server ERREUR\n");
         } else {
-            printf("WiFi AP + TCP OK — SSID:myssid port:5550\n");
+            LOG_INFO(TAG,"WiFi AP + TCP OK — SSID:myssid port:5550");
         }
     }
 

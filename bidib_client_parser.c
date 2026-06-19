@@ -36,6 +36,8 @@
 #include "crc_8bit.h"
 #include "hardware/timer.h" 
 
+static const char *TAG = "bidib_client_parser";
+
 // ─── Variables globales ───────────────────────────────────────────────────────
 
 uint8_t g_bidib_connect  = BIDIB_DISCONNECTED;
@@ -92,10 +94,13 @@ static uint8_t bidib_build_header(uint8_t *buf, uint8_t msg_type, uint8_t nb_dat
 // Identique Atmel — délègue à bidib_tx_fifo_put()
 
 bool send_bidib_message(uint8_t *message) {
+    
      gpio_put(BIDIB_PIN_TEST , 1);
-    busy_wait_us_32(12);
+    busy_wait_us_32(2);
     gpio_put(BIDIB_PIN_TEST , 0);
     
+LOG_INFO(TAG, " in send_bidib_message mg%s ", *message);
+
     return bidib_tx_fifo_put(message);
     
     return bidib_tx_fifo_put(message);
@@ -119,29 +124,27 @@ static void bidib_send_sys_magic(void) {
 }    
 
 static void bidib_send_sys_pong(uint8_t para) {
-    t_node_message1 message;
-     memcpy(message.header.addr_stack, my_addr_stack, 4);
-    message.header.terminator = 0x00;
-    message.header.index     = bidib_get_tx_num();
-    message.header.msg_type  = MSG_SYS_PONG;
-    message.data = para;
-    message.header.size = my_addr_depth + 1 + 1 + 1 + 1; // addr + term + index + type + data
+    uint8_t message[10];
+    uint8_t i = bidib_build_header(message, MSG_SYS_PONG, 3);
+    message[i++] = para;
     send_bidib_message((uint8_t *)&message);
 }
 
 static void bidib_send_sys_unique_id(void) {
-    t_node_message10 message;
-    memcpy(message.header.addr_stack, my_addr_stack, 4);
-    message.header.terminator = 0x00;
-    message.header.index     = bidib_get_tx_num();
-    message.header.msg_type  = MSG_SYS_UNIQUE_ID;
-    memcpy(message.data, MyUniqueID, 7);
-    message.header.size = my_addr_depth + 1 + 1 + 1 + 7; // addr + term + index + type + data
+    uint8_t message[10];
+    uint8_t i = bidib_build_header(message, MSG_SYS_UNIQUE_ID, 10);
+    message[i++] = MyUniqueID [0]; 
+    message[i++] = MyUniqueID [1];
+    message[i++] = MyUniqueID [2];
+    message[i++] = MyUniqueID [3]; 
+    message[i++] = MyUniqueID [4];
+    message[i++] = MyUniqueID [5];
+    message[i++] = MyUniqueID [6];  
     send_bidib_message((uint8_t *)&message);
 }
 
 static void bidib_send_sw_version(void) {
-    uint8_t message[10];
+    uint8_t message[8];
     uint8_t i = bidib_build_header(message, MSG_SYS_SW_VERSION, 3);
     message[i++] = 0x00;  // patch
     message[i++] = 0x01;  // minor
@@ -164,6 +167,7 @@ static void bidib_send_feature_count(uint8_t count) {
     send_bidib_message(message);
 }
 
+/*  not needed pico has no node attached to it
 static void bidib_send_nodetab_count(void) {
     uint8_t message[8];
     uint8_t i = bidib_build_header(message, MSG_NODETAB_COUNT, 1);
@@ -175,43 +179,31 @@ static void bidib_send_nodetab(void) {
     uint8_t message[16];
     uint8_t i = bidib_build_header(message, MSG_NODETAB, 9);
     message[i++] = 1;           // version table
-    message[i++] = 0;           // addr = 0 (lui-même)
-    for (uint8_t j = 0; j < 7; j++)
+    for (uint8_t  j = 0; j < 7; j++)
         message[i++] = MyUniqueID[j];  // UID[7]
     send_bidib_message(message);
 }
+*/
 
 static void bidib_send_error(uint8_t error_num, uint8_t error_para) {
-    t_node_message2 message;
-    memcpy(message.header.addr_stack, my_addr_stack, 4);
-    message.header.terminator = 0x00;
-    message.header.index     = bidib_get_tx_num();
-    message.header.msg_type  = MSG_SYS_ERROR;
-    message.data[0] = error_num;
-    message.data[1] = error_para;
-    message.header.size = my_addr_depth + 1 + 1 + 1 + 2; // addr + term + index + type + data
+    uint8_t message[8];
+    uint8_t i = bidib_build_header(message, MSG_SYS_ERROR, 2);
+     message[i++] = error_num;
+     message[i++] = error_para;
     send_bidib_message((uint8_t *)&message);
 }
 
 static void bidib_send_pkt_capacity(void) {
-    t_node_message1 message;
-    memcpy(message.header.addr_stack, my_addr_stack, 4);
-    message.header.terminator = 0x00;
-    message.header.index     = bidib_get_tx_num();
-    message.header.msg_type  = MSG_PKT_CAPACITY;
-    message.data = 64;  // capacité paquet en octets
-    message.header.size = my_addr_depth + 1 + 1 + 1 + 1; // addr + term + index + type + data
+   uint8_t message[5];
+    uint8_t i = bidib_build_header(message, MSG_PKT_CAPACITY, 1);
+    message[i++] = 64;  // capacité paquet en octets
     send_bidib_message((uint8_t *)&message);
 }
 
 bool bidib_send_onepara_msg(uint8_t msg_type, uint8_t dat) {
-    t_node_message1 message;
-    memcpy(message.header.addr_stack, my_addr_stack, 4);
-    message.header.terminator = 0x00;
-    message.header.index     = bidib_get_tx_num();
-    message.header.msg_type  = msg_type;
-    message.data = dat;
-    message.header.size = my_addr_depth + 1 + 1 + 1 + 1; // addr + term + index + type + data
+    uint8_t message[5];
+    uint8_t i = bidib_build_header(message, msg_type, 1);
+    message[i++]= dat;
     return send_bidib_message((uint8_t *)&message);
 }
 
@@ -224,8 +216,7 @@ void set_bidib_state(uint8_t neu, uint8_t assigned_addr) {
 
     g_bidib_connect = neu;
     #if (DEBUG == 1)
-
-    printf("[bidib_parser] state → %d\n", g_bidib_connect);
+    LOG_INFO(TAG,"state → %d\n",g_bidib_connect);
     #endif
 
     switch (g_bidib_connect) {
@@ -237,13 +228,13 @@ void set_bidib_state(uint8_t neu, uint8_t assigned_addr) {
             bidib_flush_tx();
             bidib_rx_state = BIDIB_IDLE;
             #if (DEBUG == 1)
-                printf("[bidib_parser] DISCONNECTED\n");
+            LOG_INFO(TAG," DISCONNECTED");
             #endif
             break;
 
         case BIDIB_APPLIED:
             #if (DEBUG == 1)
-                printf("[bidib_parser] APPLIED — logon sent, waiting ACK\n");
+                LOG_INFO(TAG,"APPLIED — logon sent, waiting ACK");
             #endif
             break;
 
@@ -257,8 +248,8 @@ void set_bidib_state(uint8_t neu, uint8_t assigned_addr) {
         case BIDIB_REJECTED:
             my_bidib_node_addr     = 0xFF;
             g_bidib_spontan_enabled = false;
-            #if (DEBUG == 1)
-                printf("[bidib_parser] REJECTED\n");
+            #if (DEBUG == 1) 
+                LOG_INFO(TAG," REJECTED");
             #endif
             break;
     }
@@ -279,7 +270,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
     length = *bidib_rx_msg++;
     if ((length == 0) || (length & 0x80)) {
         #if (DEBUG == 1)
-            printf("[bidib_parser] invalid message length: %d\n", length);
+            LOG_INFO(TAG,"invalid message length: %d",length);
         #endif  
         return 128;
     }
@@ -299,8 +290,8 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         // Vérification séquence
         if (*bidib_rx_msg != bidib_rx_msg_num) {
 #if (DEBUG == 1)
-            printf("[bidib_parser] sequence resync: expected %d got %d\n",
-                   bidib_rx_msg_num, *bidib_rx_msg);
+        LOG_INFO(TAG,"sequence resync: expected %d got %d",
+             bidib_rx_msg_num, *bidib_rx_msg);
 #endif
             bidib_rx_msg_num = *bidib_rx_msg;
         }
@@ -315,8 +306,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
     msg_type = bidib_rx_msg;
 
     #if (DEBUG == 1)
-        printf("[bidib_parser] rx msg type=0x%02X addr=[%d]\n", 
-               *msg_type, addr_stack[0]);
+    LOG_INFO(TAG,"rx msg type=0x%02X addr=[%d]",*msg_type, addr_stack[0]);
     #endif
 
     switch (*msg_type) {
@@ -346,7 +336,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         case MSG_FEATURE_GETALL:   // 0x10
             bidib_send_feature_count(0);  // 0 features pour l'instant
             break;
-
+/*  not needed pico has no node attached
         case MSG_NODETAB_GETALL:   // 0x0B
             bidib_send_nodetab_count();
             break;
@@ -354,7 +344,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         case MSG_NODETAB_GETNEXT:  // 0x0C
             bidib_send_nodetab();
             break;
-            
+*/
         case MSG_SYS_PING:
             bidib_send_sys_pong(msg_type[1]);   
             break;
@@ -592,135 +582,53 @@ void init_bidib_client(void) {
 //   [REQ_MSG_TYPE=MSG_CS_DRIVE]
 //   [REQ_DATA...]         ← les 9 octets CS_DRIVE
 //
-void bidib_send_cs_drive(uint16_t dcc_addr, int speed, uint8_t dir,
-                         int f[29]) {
+void bidib_send_cs_drive(uint16_t dcc_addr, int speed, uint8_t dir, int f[29], uint8_t active) {
+ // LOG_INFO(TAG,"in bidib_send_cs_drive dcc_addr %02x, speed %02x, dir %02x, active %02x",
+ //                dcc_addr, speed,dir,  active);  
+gpio_put(BIDIB_PIN_TEST , 1);
+    busy_wait_us_32(6);
+gpio_put(BIDIB_PIN_TEST , 0);
+
+   //LOG_INFO(TAG,"g_bidib_connect %02x g_bidib_spontan_enabled %02x ",
+   //          g_bidib_connect,g_bidib_spontan_enabled);
     if (g_bidib_connect != BIDIB_CONNECTED) return;
-    if (!g_bidib_spontan_enabled) {
-        printf("[bidib_parser] cs_drive: guest mode not enabled yet\n");
-        return;
-    }
+    if (!g_bidib_spontan_enabled) return;
+
+    t_bidib_cs_drive drive;
+    drive.addr    = dcc_addr;
+    drive.format  = BIDIB_CS_DRIVE_FORMAT_DCC128;
+    drive.active  = active;
+    drive.speed   = (speed < 0) ? 0x01 : ((uint8_t)(speed & 0x7F) | (dir ? 0x80 : 0));
+    drive.f4_f0   = (f[0]?0x10:0)|(f[1]?0x01:0)|(f[2]?0x02:0)|(f[3]?0x04:0)|(f[4]?0x08:0);
+    drive.f12_f5  = (f[5]?0x01:0)|(f[6]?0x02:0)|(f[7]?0x04:0)|(f[8]?0x08:0)
+                   |(f[9]?0x10:0)|(f[10]?0x20:0)|(f[11]?0x40:0)|(f[12]?0x80:0);
+    drive.f20_f13 = (f[13]?0x01:0)|(f[14]?0x02:0)|(f[15]?0x04:0)|(f[16]?0x08:0)
+                   |(f[17]?0x10:0)|(f[18]?0x20:0)|(f[19]?0x40:0)|(f[20]?0x80:0);
+    drive.f28_f21 = (f[21]?0x01:0)|(f[22]?0x02:0)|(f[23]?0x04:0)|(f[24]?0x08:0)
+                   |(f[25]?0x10:0)|(f[26]?0x20:0)|(f[27]?0x40:0)|(f[28]?0x80:0);
+                 
 /*
-    // Construire les données MSG_CS_DRIVE
-    uint8_t addrl  = (uint8_t)(dcc_addr & 0xFF);
-    uint8_t addrh  = (uint8_t)((dcc_addr >> 8) & 0x3F);
-
-    // format : DCC 128 steps = 0x03
-    uint8_t format = BIDIB_CS_DRIVE_FORMAT_DCC128;
-
-    // active : on envoie toujours vitesse + fonctions
-    uint8_t active = BIDIB_CS_DRIVE_EVENT_MOVE |
-                     BIDIB_CS_DRIVE_EVENT_FUNC1 |
-                     BIDIB_CS_DRIVE_EVENT_FUNC2 |
-                     BIDIB_CS_DRIVE_EVENT_FUNC3 |
-                     BIDIB_CS_DRIVE_EVENT_FUNC4;
-
-    // speed : bit7 = direction (1=avant), bits 0-6 = vitesse
-    uint8_t speed_byte;
-    if (speed < 0) {
-        speed_byte = 0x01;  // emergency stop
-    } else {
-        speed_byte = (uint8_t)(speed & 0x7F);
-        if (dir) speed_byte |= 0x80;
-    }
-
-    // fonctions
-    uint8_t f4_f0  = (f[0] ? 0x10 : 0)
-                   | (f[1] ? 0x01 : 0)
-                   | (f[2] ? 0x02 : 0)
-                   | (f[3] ? 0x04 : 0)
-                   | (f[4] ? 0x08 : 0);
-
-    uint8_t f12_f5 = (f[5]  ? 0x01 : 0)
-                   | (f[6]  ? 0x02 : 0)
-                   | (f[7]  ? 0x04 : 0)
-                   | (f[8]  ? 0x08 : 0)
-                   | (f[9]  ? 0x10 : 0)
-                   | (f[10] ? 0x20 : 0)
-                   | (f[11] ? 0x40 : 0)
-                   | (f[12] ? 0x80 : 0);
-
-    uint8_t f20_f13= (f[13] ? 0x01 : 0)
-                   | (f[14] ? 0x02 : 0)
-                   | (f[15] ? 0x04 : 0)
-                   | (f[16] ? 0x08 : 0)
-                   | (f[17] ? 0x10 : 0)
-                   | (f[18] ? 0x20 : 0)
-                   | (f[19] ? 0x40 : 0)
-                   | (f[20] ? 0x80 : 0);
-
-    uint8_t f28_f21= (f[21] ? 0x01 : 0)
-                   | (f[22] ? 0x02 : 0)
-                   | (f[23] ? 0x04 : 0)
-                   | (f[24] ? 0x08 : 0)
-                   | (f[25] ? 0x10 : 0)
-                   | (f[26] ? 0x20 : 0)
-                   | (f[27] ? 0x40 : 0)
-                   | (f[28] ? 0x80 : 0);
-
-    // Construire MSG_GUEST_REQ_SEND
-    // [size][addr=0][mnum][MSG_GUEST_REQ_SEND]
-    // [TARGET_MODE_DCCGEN=0x0C]
-    // [MSG_CS_DRIVE]
-    // [addrl][addrh][format][active][speed][f4_f0][f12_f5][f20_f13][f28_f21]
-    //
-    // size = 3 (header sans size) + 1 (TARGET_MODE) + 1 (REQ_MSG_TYPE) + 9 (CS_DRIVE data)
-    //      = 14
-
-    uint8_t msg[16];
-    uint8_t idx = 0;
-
-    msg[idx++] = 3 + 1 + 1 + 9;          // size = 14
-    msg[idx++] = 0;                        // addr = 0 (vers host)
-    msg[idx++] = bidib_get_tx_num();       // mnum
-    msg[idx++] = MSG_GUEST_REQ_SEND;       // message type
-    msg[idx++] = BIDIB_TARGET_MODE_DCCGEN; // 0x0C
-    msg[idx++] = MSG_CS_DRIVE;             // commande encapsulée
-    msg[idx++] = addrl;
-    msg[idx++] = addrh;
-    msg[idx++] = format;
-    msg[idx++] = active;
-    msg[idx++] = speed_byte;
-    msg[idx++] = f4_f0;
-    msg[idx++] = f12_f5;
-    msg[idx++] = f20_f13;
-    msg[idx++] = f28_f21;
-
-    printf("[bidib_parser] cs_drive addr=%d spd=%d dir=%d f4f0=0x%02X\n",
-           dcc_addr, speed, dir, f4_f0);
+#if (BIDIB_DISTRIBUTED_CONTROL == 1)
+    if (!g_bidib_guest_enabled) return;
+    bidib_guest_req_send(MSG_CS_DRIVE,
+                         BIDIB_TARGET_MODE_DISPATCH_DCCGEN,
+                         (uint8_t *)&drive,
+                         sizeof(t_bidib_cs_drive));
+#else
 */
-    
-t_bidib_cs_drive drive;
-drive.addr    = dcc_addr;
-drive.format  = BIDIB_CS_DRIVE_FORMAT_DCC128;
-drive.active  = BIDIB_CS_DRIVE_SPEED_BIT
-              | BIDIB_CS_DRIVE_F1F4_BIT
-              | BIDIB_CS_DRIVE_F5F8_BIT
-              | BIDIB_CS_DRIVE_F9F12_BIT
-              | BIDIB_CS_DRIVE_F13F20_BIT
-              | BIDIB_CS_DRIVE_F21F28_BIT;
-drive.speed   = (speed < 0) ? 0x01 : ((uint8_t)(speed & 0x7F) | (dir ? 0x80 : 0));
-drive.f4_f0   = (f[0] ? 0x10 : 0) | (f[1]?0x01:0) | (f[2]?0x02:0)
-              | (f[3]?0x04:0) | (f[4]?0x08:0);
-drive.f12_f5  = (f[5]?0x01:0) | (f[6]?0x02:0) | (f[7]?0x04:0) | (f[8]?0x08:0)
-              | (f[9]?0x10:0) | (f[10]?0x20:0) | (f[11]?0x40:0) | (f[12]?0x80:0);
-drive.f20_f13 = (f[13]?0x01:0) | (f[14]?0x02:0) | (f[15]?0x04:0) | (f[16]?0x08:0)
-              | (f[17]?0x10:0) | (f[18]?0x20:0) | (f[19]?0x40:0) | (f[20]?0x80:0);
-drive.f28_f21 = (f[21]?0x01:0) | (f[22]?0x02:0) | (f[23]?0x04:0) | (f[24]?0x08:0)
-              | (f[25]?0x10:0) | (f[26]?0x20:0) | (f[27]?0x40:0) | (f[28]?0x80:0);
-
-// Construire MSG_GUEST_REQ_SEND
-uint8_t msg[16];
-uint8_t idx = 0;
-msg[idx++] = 3 + 1 + 1 + sizeof(t_bidib_cs_drive);  // size
-msg[idx++] = 0;                                        // addr
-msg[idx++] = bidib_get_tx_num();                       // mnum
-msg[idx++] = MSG_GUEST_REQ_SEND;
-msg[idx++] = BIDIB_TARGET_MODE_DCCGEN;                 // 0x0C
-msg[idx++] = MSG_CS_DRIVE;
-memcpy(&msg[idx], &drive, sizeof(t_bidib_cs_drive));
-
-send_bidib_message(msg);
+    // Envoi direct MSG_CS_DRIVE sans distributed control
+    uint8_t message[16];
+    uint8_t i = bidib_build_header(message, MSG_CS_DRIVE, sizeof(t_bidib_cs_drive));
+    memcpy(&message[i], &drive, sizeof(t_bidib_cs_drive));
+ //   LOG_INFO(TAG,"send_bidib_message %s", message);
+ gpio_put(BIDIB_PIN_TEST , 1);
+    busy_wait_us_32(2);
+gpio_put(BIDIB_PIN_TEST , 0);     
+    send_bidib_message(message);
+//#endif
 }
+    
+
 
 // ─── bidib_send_boost_state() ────────────────────────────────────────────────
 // Traduit PPA0/PPA1 (Engine Driver) en MSG_GUEST_REQ_SEND { BOOSTER, BOOST_ON/OFF }

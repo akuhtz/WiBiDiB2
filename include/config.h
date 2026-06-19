@@ -32,6 +32,6 @@
 #define LOG_INFO(tag, fmt, ...)   printf("[I] %s: " fmt "\n", tag, ##__VA_ARGS__)
 #define LOG_WARN(tag, fmt, ...)   printf("[W] %s: " fmt "\n", tag, ##__VA_ARGS__)
 #define LOG_ERROR(tag, fmt, ...)  printf("[E] %s: " fmt "\n", tag, ##__VA_ARGS__)
-#define debug      0    // 1 pour activer les logs de debug (très verbeux)
+#define debug      1    // 1 pour activer les logs de debug (très verbeux)
 
 #endif /* CONFIG_H_ */

@@ -43,6 +43,8 @@
 #include "crc_8bit.h"
 #include "config.h"
 
+static const char *TAG = "bidib_client";
+
 extern uint8_t g_bidib_connect;
 uint64_t last_poll_us = 0;
 // ─── Buffers ─────────────────────────────────────────────────────────────────
@@ -152,22 +154,26 @@ bool bidib_tx_fifo_healthy(void) {
 //
 bool bidib_tx_fifo_put(uint8_t *new_message) {
     if (g_bidib_connect != BIDIB_CONNECTED) return true;
-
+ gpio_put(BIDIB_PIN_TEST , 1);
+    busy_wait_us_32(2);
+    gpio_put(BIDIB_PIN_TEST , 0);
     uint8_t size  = new_message[0];
     uint8_t total = size + 1;  // size + message
 
-  #if (DEBUG == 1)  
+ // #if (DEBUG == 1)  
     static uint8_t call_count = 0;
     call_count++;
-    printf("[tx_put#%d] read=%d write=%d ahead=%d size=%d\n", 
-       call_count, bidib_tx_buf_read, bidib_tx_buf_write, bidib_tx_ahead, size);
-#endif
+    LOG_INFO(TAG,"[tx_put#%d] read=%d write=%d ahead=%d size=%d",
+        call_count, bidib_tx_buf_read, bidib_tx_buf_write, bidib_tx_ahead, size);   
+//#endif
     uint32_t s = bidib_enter_critical();
-
+gpio_put(BIDIB_PIN_TEST , 1);
+    busy_wait_us_32(2);
+gpio_put(BIDIB_PIN_TEST , 0);     
     // Vérifier place disponible
     if ((bidib_tx_ahead + total) > BIDIB_TX_BUF_SIZE) {
         bidib_exit_critical(s);
-        printf("[bidib_if] TX fifo full!\n");
+        LOG_INFO(TAG,"TX fifo full!");
         return false;
     }
 
@@ -215,7 +221,7 @@ void bidib_prepare_tx_logon(void) {
         crc = crc8_update(crc, bidib_tx_buf[i]);
     bidib_tx_buf[idx++] = crc;
 #if (DEBUG == 1)
-    printf("[bidib_if] logon prepared, crc=0x%02X, total=%d bytes\n", crc, idx);
+    LOG_INFO(TAG,"Logon prepared, crc=0x%02X, total=%d bytes",crc, idx);)
 #endif
 }
 
@@ -252,7 +258,7 @@ void init_bidib_client_if(void) {
     bidib_flush_tx();
     my_bidib_node_addr = 0xFF;
     bidib_tx0_msg_num  = 1;
-    printf("[bidib_if] init done\n");
+    LOG_INFO(TAG,"init done");
 }
 
 void stop_bidib_client_if(void) {

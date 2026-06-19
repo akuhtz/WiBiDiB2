@@ -223,12 +223,7 @@ static void tcp_server_err_cb(void *arg, err_t err) {
 //
 void send_msg(struct tcp_pcb *pcb, int len, const char *msg) {
     if (!pcb || len <= 0) return;
-
-    // Debug : affiche les octets comme sur ESP32
-    printf("[smartphone_if] msg len %d ", len);
-    for (int j = 0; j < len; j++) printf("%02X:", (uint8_t)msg[j]);
-    printf("\n");
-
+    LOG_INFO(TAG, " msg len %d bytes: %s",  len, msg);
 
     err_t err = tcp_write(pcb, msg, (u16_t)len, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK) {
