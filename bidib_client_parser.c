@@ -46,6 +46,9 @@ uint8_t my_bidib_node_addr = 0xFF;
 uint8_t my_addr_stack[4] = {0, 0, 0, 0};
 uint8_t my_addr_depth    = 0;
 
+volatile uint8_t g_bidib_guest_enabled = 0;
+static bool guest_subscribed = false;
+
 // Guest mode activé par MSG_SYS_ENABLE
 static bool g_bidib_spontan_enabled = false;
 
@@ -99,7 +102,7 @@ bool send_bidib_message(uint8_t *message) {
     busy_wait_us_32(2);
     gpio_put(BIDIB_PIN_TEST , 0);
     
-LOG_INFO(TAG, " in send_bidib_message mg%s ", *message);
+LOG_INFO(TAG, " in send_bidib_message mg%s ", message);
 
     return bidib_tx_fifo_put(message);
     
@@ -255,6 +258,33 @@ void set_bidib_state(uint8_t neu, uint8_t assigned_addr) {
     }
 }
 
+#if (BIDIB_DISTRIBUTED_CONTROL == 1)
+static bool bidib_guest_req_send(uint8_t msg_type_target,
+                                  uint8_t target_mode,
+                                  uint8_t *msg_data,
+                                  uint8_t data_len) {
+    uint8_t message[32];
+    uint8_t i = bidib_build_header(message, MSG_GUEST_REQ_SEND, 3 + data_len);
+    message[i++] = target_mode;      // TARGET_MODE
+    message[i++] = 0x00;             // addr end (pas de nœud cible spécifique)
+    message[i++] = msg_type_target;  // type du message cible (ex: MSG_CS_DRIVE)
+    for (uint8_t j = 0; j < data_len; j++)
+        message[i++] = msg_data[j];
+    return send_bidib_message(message);
+}
+
+static void bidib_guest_req_subscribe(uint8_t class, uint8_t sub, uint8_t obj_count) {
+    uint8_t message[12];
+    uint8_t i = bidib_build_header(message, MSG_GUEST_REQ_SUBSCRIBE, 5);
+    message[i++] = 0x00;        // TARGET_MODE_ABSOLUTE
+    message[i++] = 0x00;        // addr end (pas de nœud cible spécifique)
+    message[i++] = class;       // classe à abonner
+    message[i++] = sub;         // direction upstream/downstream
+    message[i++] = obj_count;   // nombre d'objets (0x0F = illimité)
+    send_bidib_message(message);
+}
+
+#endif
 // ─── process_bidib_message() ─────────────────────────────────────────────────
 // Parse un message BiDiB reçu de l'IF2
 // Paramètre : pointeur vers le byte LENGTH du message
@@ -358,6 +388,13 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             if (g_bidib_connect == BIDIB_CONNECTED) {
                 g_bidib_spontan_enabled = true;
                 printf("[bidib_parser] SYS_ENABLE → guest mode ON\n");
+                #if (BIDIB_DISTRIBUTED_CONTROL == 1)
+            if (!guest_subscribed) {
+            bidib_guest_req_subscribe(CLASS_REQ_DCC_SIGNAL,
+                                      SUBSCRIPTION_REQ_DOWNSTREAM, 0x0F);
+            guest_subscribed = true;
+        }
+        #endif
             }
             break;
 
@@ -402,6 +439,8 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
                 printf("[bidib_parser] LOGON_ACK → addr=0x%02X\n", assigned);
                 bidib_rx_msg_num = 0;  // repart de zéro à chaque connexion
                 bidib_tx0_msg_num  = 0;
+                g_bidib_guest_enabled = 0;
+                guest_subscribed = false;
             }
             break;
 
@@ -422,6 +461,25 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             // Notification de l'IF2 sur un abonnement
             printf("[bidib_parser] GUEST_RESP_NOTIFY type=0x%02X\n", msg_type[1]);
             break;
+
+        case MSG_GUEST_RESP_SUBSCRIPTION:   // 0xD1
+            {
+                uint8_t *p = msg_type + 1;
+                uint8_t targetMode = *p++;
+                while (*p != 0x00) p++;   // saute la pile d'adresses jusqu'au terminateur
+                p++;                       // saute le terminateur lui-même
+                uint8_t ackApproval = *p++;
+                uint8_t cls         = *p++;
+                printf("[bidib_parser] GUEST_RESP_SUBSCRIPTION target=0x%02X ack=0x%02X class=0x%02X\n",
+                    targetMode, ackApproval, cls);
+                if (ackApproval == SUBSCRIPTION_ACK_OK || ackApproval == SUBSCRIPTION_ACK_CHANGED) {
+                    g_bidib_guest_enabled = 1;
+                    printf("[bidib_parser] guest subscription confirmed → CS_DRIVE enabled\n");
+                } else {
+                    printf("[bidib_parser] guest subscription REFUSED (ack=0x%02X)\n", ackApproval);
+                }
+                break;
+            }
 
         // ── Messages non gérés ────────────────────────────────────────────────
         default:
@@ -607,15 +665,18 @@ gpio_put(BIDIB_PIN_TEST , 0);
     drive.f28_f21 = (f[21]?0x01:0)|(f[22]?0x02:0)|(f[23]?0x04:0)|(f[24]?0x08:0)
                    |(f[25]?0x10:0)|(f[26]?0x20:0)|(f[27]?0x40:0)|(f[28]?0x80:0);
                  
-/*
+
 #if (BIDIB_DISTRIBUTED_CONTROL == 1)
-    if (!g_bidib_guest_enabled) return;
+    if (!g_bidib_guest_enabled) {
+        printf("[cs_drive] guest not subscribed yet — drop\n");
+        return;
+    }
     bidib_guest_req_send(MSG_CS_DRIVE,
                          BIDIB_TARGET_MODE_DISPATCH_DCCGEN,
                          (uint8_t *)&drive,
                          sizeof(t_bidib_cs_drive));
 #else
-*/
+
     // Envoi direct MSG_CS_DRIVE sans distributed control
     uint8_t message[16];
     uint8_t i = bidib_build_header(message, MSG_CS_DRIVE, sizeof(t_bidib_cs_drive));
@@ -625,7 +686,7 @@ gpio_put(BIDIB_PIN_TEST , 0);
     busy_wait_us_32(2);
 gpio_put(BIDIB_PIN_TEST , 0);     
     send_bidib_message(message);
-//#endif
+#endif
 }
     
 

@@ -34,4 +34,7 @@
 #define LOG_ERROR(tag, fmt, ...)  printf("[E] %s: " fmt "\n", tag, ##__VA_ARGS__)
 #define debug      1    // 1 pour activer les logs de debug (très verbeux)
 
+// ─── Distributed control ────────────────────────────────────────────────────────
+#define BIDIB_DISTRIBUTED_CONTROL  0
+
 #endif /* CONFIG_H_ */

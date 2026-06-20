@@ -16,6 +16,7 @@ static inline uint32_t get_tick_ms(void) {
 }
 
 extern uint64_t last_poll_us;
+extern volatile uint8_t g_bidib_guest_enabled;
 
 // ─────────────────────────────────────────────────
 // Pins
@@ -62,6 +63,16 @@ extern uint8_t bidib_tx0_msg_num;
 extern volatile uint8_t bidib_tx_buf_write;
 extern volatile uint8_t bidib_tx_buf_read;
 extern volatile uint8_t bidib_tx_ahead;
+
+// ─────────────────────────────────────────────────
+// Distributed control
+// ─────────────────────────────────────────────────
+#define CLASS_REQ_DCC_SIGNAL            6
+#define SUBSCRIPTION_REQ_DOWNSTREAM     1
+#define BIDIB_TARGET_MODE_ABSOLUTE      0
+#define BIDIB_TARGET_MODE_DISPATCH_DCCGEN  20
+#define SUBSCRIPTION_ACK_OK             0x00
+#define SUBSCRIPTION_ACK_CHANGED        0x01
 
 // ─────────────────────────────────────────────────
 // API publique
