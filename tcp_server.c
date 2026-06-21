@@ -223,7 +223,7 @@ static void tcp_server_err_cb(void *arg, err_t err) {
 //
 void send_msg(struct tcp_pcb *pcb, int len, const char *msg) {
     if (!pcb || len <= 0) return;
-    LOG_INFO(TAG, " msg len %d bytes: %s",  len, msg);
+    LOG_INFO(TAG, "-> msg len %d bytes: %s",  len, msg);
 
     err_t err = tcp_write(pcb, msg, (u16_t)len, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK) {

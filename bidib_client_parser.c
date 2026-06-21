@@ -102,7 +102,7 @@ bool send_bidib_message(uint8_t *message) {
     busy_wait_us_32(2);
     gpio_put(BIDIB_PIN_TEST , 0);
     
-LOG_INFO(TAG, " in send_bidib_message mg%s ", message);
+// LOG_INFO(TAG, " in send_bidib_message mg%s ", message);
 
     return bidib_tx_fifo_put(message);
     
@@ -482,6 +482,8 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             }
 
         // ── Messages non gérés ────────────────────────────────────────────────
+        case MSG_SYS_CLOCK:   // 0x18
+            break;
         default:
             printf("[bidib_parser] unhandled msg type=0x%02X\n", *msg_type);
             break;

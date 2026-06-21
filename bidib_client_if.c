@@ -160,12 +160,12 @@ bool bidib_tx_fifo_put(uint8_t *new_message) {
     uint8_t size  = new_message[0];
     uint8_t total = size + 1;  // size + message
 
- // #if (DEBUG == 1)  
+  #if (DEBUG == 1)  
     static uint8_t call_count = 0;
     call_count++;
     LOG_INFO(TAG,"[tx_put#%d] read=%d write=%d ahead=%d size=%d",
         call_count, bidib_tx_buf_read, bidib_tx_buf_write, bidib_tx_ahead, size);   
-//#endif
+#endif
     uint32_t s = bidib_enter_critical();
 gpio_put(BIDIB_PIN_TEST , 1);
     busy_wait_us_32(2);

@@ -135,8 +135,7 @@ static void locoAdd(const char *th, const char *ak, uint8_t slot) {
     send_msg(pcb, length_msg, msg);
 
     tcp_output(pcb);
-   // printf("[withrottle_if] locoAdd %s Adress=%d\n", ak, Loco[slot].dccAdress);
-    LOG_INFO(TAG,"locoAdd %d dccAdress=%02x ",  ak, Loco[slot].dccAdress);
+    LOG_INFO(TAG," loco_wi_+  th=%s ak=%s dcc=%d slot=%d", th, actionKey_g,Loco[slot].dccAdress, slot );
 }
 
 // ─── locoRelease() ───────────────────────────────────────────────────────────
@@ -167,8 +166,7 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
     struct tcp_pcb *pcb = throttle[slot].pcb;
     char    tmp[20]     = {};
     char    locoAddress[10] = {};
-
-  //  printf("[withrottle_if] locoAction th=%s ak=%s\n", th, ak);
+    
     LOG_INFO(TAG,"locoAction th=%s ak=%s", th, ak );
     snprintf(locoAddress, sizeof(locoAddress), "%d", Loco[slot].dccAdress);
 
@@ -211,6 +209,9 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
             else if (fk <= 20) active |= BIDIB_CS_DRIVE_F13F20_BIT;
             else               active |= BIDIB_CS_DRIVE_F21F28_BIT;
 
+        LOG_INFO(TAG,"dccAdress %d  LocoState %02x   Active %02x ",
+            Loco[slot].dccAdress, fstate, active);
+
             bidib_send_cs_drive(Loco[slot].dccAdress, Loco[slot].newSpeed,
                     Loco[slot].dir, Loco[slot].LocoState, active);
         
@@ -242,15 +243,18 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
     }
 
     // ── V : vitesse ───────────────────────────────────────────────────────────
-    else if (ak[0] == 'V') {
+    else if (ak[0] == 'V') {       
         int spd = (int)strtol(ak + 1, NULL, 10);
         Loco[slot].newSpeed = spd;
         uint8_t active = 1;
-        LOG_INFO(TAG," <- slot %02x speed %02x ", slot, Loco[slot].newSpeed );
-    gpio_put(BIDIB_PIN_TEST , 1);
-    busy_wait_us_32(4);
-gpio_put(BIDIB_PIN_TEST , 0);
-      bidib_send_cs_drive(Loco[slot].dccAdress, Loco[slot].newSpeed,Loco[slot].dir,
+
+        gpio_put(BIDIB_PIN_TEST , 1);
+        busy_wait_us_32(4);
+        gpio_put(BIDIB_PIN_TEST , 0);
+
+        LOG_INFO(TAG,"dccAdress %d  Speed %02x dir %02x  Active %02x ",
+        Loco[slot].dccAdress, Loco[slot].newSpeed,Loco[slot].dir,active);
+        bidib_send_cs_drive(Loco[slot].dccAdress, spd,Loco[slot].dir,
             Loco[slot].LocoState,   // LocoState[29];      // état F0..F28
             active );
         // Renvoyer V confirmée au smartphone
@@ -335,7 +339,7 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
     char actionData[30] = {};
     int  delimiter      = 0;
 
-    LOG_INFO(TAG, "<- slot %d message: %s", slot, data->msg);
+    LOG_INFO(TAG, "-> slot %d message: %s", slot, data->msg);
 
     throttle[slot].state = NODE_LOGGED_ON;
     struct tcp_pcb *pcb  = data->pcb;
@@ -424,7 +428,7 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
             Loco[slot].dccAdress = k;
            // printf("[withrottle_if] locoAdd th=%s ak=%s dcc=%d slot=%d\n",
            //       th, actionKey_g, k, slot);
-            LOG_INFO(TAG," locoAdd th=%s ak=%s dcc=%d slot=%d", th, actionKey_g, k, slot );
+            LOG_INFO(TAG," loco+  ak=%s dcc=%d slot=%d", actionKey_g, k, slot );
             
                    locoAdd(th, actionKey_g, slot);
         }
