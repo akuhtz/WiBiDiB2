@@ -23,8 +23,8 @@ extern volatile uint8_t g_bidib_guest_enabled;
 // ─────────────────────────────────────────────────
 #define BIDIB_PIN_RX    19   // gp19  pin 25
 #define BIDIB_PIN_TX    18   // gp18  pin 24
-#define BIDIB_PIN_DE     4   // gp4   pin 6
-#define BIDIB_PIN_TEST  16   // gp16  pin 21
+#define BIDIB_PIN_DE     6   // gp6   pin 9
+#define BIDIB_PIN_TEST  16   // gp16  pin 21                                                                                        
 
 // ─────────────────────────────────────────────────
 // Timing
