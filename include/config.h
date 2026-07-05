@@ -35,6 +35,6 @@
 #define debug      1    // 1 pour activer les logs de debug (très verbeux)
 
 // ─── Distributed control ────────────────────────────────────────────────────────
-#define BIDIB_DISTRIBUTED_CONTROL  0
+#define BIDIB_DISTRIBUTED_CONTROL  1
 
 #endif /* CONFIG_H_ */

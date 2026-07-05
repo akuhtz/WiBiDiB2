@@ -29,7 +29,7 @@ extern volatile uint8_t g_bidib_guest_enabled;
 // ─────────────────────────────────────────────────
 // Timing
 // ─────────────────────────────────────────────────
-#define BIDIB_BAUD          500000.0f
+#define BIDIB_BAUD          500000
 #define BIDIB_CA_TIME_US    17
 
 // ─────────────────────────────────────────────────
@@ -67,10 +67,17 @@ extern volatile uint8_t bidib_tx_ahead;
 // ─────────────────────────────────────────────────
 // Distributed control
 // ─────────────────────────────────────────────────
-#define CLASS_REQ_DCC_SIGNAL            6
-#define SUBSCRIPTION_REQ_DOWNSTREAM     1
-#define BIDIB_TARGET_MODE_ABSOLUTE      0
-#define BIDIB_TARGET_MODE_DISPATCH_DCCGEN  20
+// ─────────────────────────────────────────────────
+// Distributed control
+// ─────────────────────────────────────────────────
+#define BIDIB_TARGET_MODE_DCCGEN        0x0C
+#define BIDIB_TARGET_MODE_BOOSTER       0x09
+
+// Bitfield SUBSCRIPTION 16 bits (downstream)
+#define SUBSCRIPTION_TRACK_SIGNAL       0x0040  // bit 6 = Track signal (DCC)
+#define SUBSCRIPTION_BOOSTER            0x0008  // bit 3 = Booster messages
+#define SUBSCRIPTION_ALL                0xFFFF
+
 #define SUBSCRIPTION_ACK_OK             0x00
 #define SUBSCRIPTION_ACK_CHANGED        0x01
 

@@ -39,6 +39,7 @@
 
 #include "bidib.h"              // BIDIB_PIN_DE, MyUniqueID, bidib_state_t
 #include "bidib_messages.h"
+#include "bidib_distributed_control.h"
 #include "bidib_client_if.h"
 #include "crc_8bit.h"
 #include "config.h"

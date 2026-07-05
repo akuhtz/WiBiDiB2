@@ -254,6 +254,7 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
 
         LOG_INFO(TAG,"dccAdress %d  Speed %02x dir %02x  Active %02x ",
         Loco[slot].dccAdress, Loco[slot].newSpeed,Loco[slot].dir,active);
+        LOG_INFO(TAG," call bidib_send_cs_drive() ");
         bidib_send_cs_drive(Loco[slot].dccAdress, spd,Loco[slot].dir,
             Loco[slot].LocoState,   // LocoState[29];      // état F0..F28
             active );
