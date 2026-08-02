@@ -79,6 +79,12 @@ typedef enum {
 
 static bidib_rx_state_t bidib_rx_state = BIDIB_IDLE;
 
+typedef struct {
+    uint8_t dccgen_uid[5];
+    uint8_t booster_uid[5];
+} t_pico_guest_targets;
+
+static t_pico_guest_targets guest_targets = {0};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -387,14 +393,15 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
                 g_bidib_spontan_enabled = true;
                 printf("[bidib_parser] SYS_ENABLE → guest mode ON\n");
                 #if (BIDIB_DISTRIBUTED_CONTROL == 1)
+            printf("[bidib_parser] guest_subscribed = %s\n", guest_subscribed ? "true" : "false");   
             if (!guest_subscribed) {
                 printf("[bidib_parser] sending SUBSCRIBE DCCGEN\n");
             bidib_guest_req_subscribe(BIDIB_TARGET_MODE_DCCGEN, 
                     SUBSCRIPTION_TRACK_SIGNAL);
-            printf("[bidib_parser] sending SUBSCRIBE BOOSTER\n");
-            bidib_guest_req_subscribe(BIDIB_TARGET_MODE_BOOSTER, 
-                                SUBSCRIPTION_BOOSTER);
-                guest_subscribed = true;
+           // printf("[bidib_parser] sending SUBSCRIBE BOOSTER\n");
+           // bidib_guest_req_subscribe(BIDIB_TARGET_MODE_BOOSTER, 
+            //                    SUBSCRIPTION_BOOSTER);
+             //   guest_subscribed = true;
         }
         #endif
             }
@@ -453,6 +460,43 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             break;
 
         // ── Distributed Control — réponses de l'IF2 ou Central Station ──────────────────────────
+        case MSG_GUEST_RESP_SUBSCRIPTION_COUNT:   // 0x50
+        {
+          printf("[bidib_parser] RAW COUNT msg: ");
+            for (int k = 0; k < 9; k++) {
+                printf("%02X ", msg_type[k]);
+            }
+            printf("\n");  
+            
+            
+            
+            uint8_t *p = msg_type + 1;
+            uint8_t targetMode = *p++;
+            uint8_t target_uid[5];
+            memcpy(target_uid, p, 5);
+            p += 5;
+            uint8_t ack_seq = *p++;
+            uint8_t result  = *p++;
+            uint16_t count  = (uint16_t)*p++;
+            count |= ((uint16_t)*p++ << 8);
+
+            printf("[bidib_parser] RESP_SUBSCRIPTION_COUNT target=0x%02X result=0x%02X count=%u\n",
+                targetMode, result, count);
+            break;
+        }
+        
+        case  MSG_GUEST_RESP_NOTIFY:         // 0x53 
+            {
+                uint8_t *p = msg_type + 1;
+                uint8_t targetMode = *p++;
+                uint16_t sub_msg_num = (uint16_t)*p++;
+                sub_msg_num |= ((uint16_t)*p++ << 8);
+                uint8_t sub_msg_type = *p++;
+                printf("[bidib_parser] GUEST_RESP_NOTIFY target=0x%02X sub_msg_num=%d sub_msg_type=0x%02X\n",
+                        targetMode, sub_msg_num, sub_msg_type);
+            }
+            break;
+
         case MSG_GUEST_RESP_SENT:       // 0x59
             // Confirmation que l'IF2 ou Central Station a bien reçu notre REQ_SEND
             // msg_type[1] = RESULT (0=OK, autre=erreur)
@@ -461,33 +505,48 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
 
         case MSG_GUEST_RESP_SUBSCRIPTION:   // 0x51
             {
-                uint8_t *p = msg_type + 1;
-                uint8_t targetMode = *p++;
-               
-                uint8_t ackApproval = *p++;
-                uint16_t subscription = (uint16_t)*p++;
-                subscription |= ((uint16_t)*p++ << 8);
-                printf("[bidib_parser] GUEST_RESP_SUBSCRIPTION target=0x%02X ack=0x%02X sub=0x%04X\n",
-                            targetMode, ackApproval, subscription);
-               if (ackApproval == SUBSCRIPTION_ACK_OK || ackApproval == SUBSCRIPTION_ACK_CHANGED) {
-                    g_bidib_guest_enabled = 1;
-                    if (targetMode == BIDIB_TARGET_MODE_DCCGEN) {
-                        printf("[bidib_parser] DCCGEN subscription confirmed → CS_DRIVE enabled\n");
-                    } else if (targetMode == BIDIB_TARGET_MODE_BOOSTER) {
-                        printf("[bidib_parser] BOOSTER subscription confirmed → BOOST_ON enabled\n");
-                    } else {
-                        printf("[bidib_parser] subscription confirmed for target=0x%02X\n", targetMode);
-                    }
-                } else {
-                    printf("[bidib_parser] guest subscription REFUSED (ack=0x%02X)\n", ackApproval);
+                
+            uint8_t *p = msg_type + 1;
+            uint8_t targetMode = *p++;
+
+            uint8_t target_uid[5];
+            memcpy(target_uid, p, 5);
+            p += 5;
+
+            uint8_t ack_seq = *p++;
+            uint8_t result  = *p++;
+
+            uint16_t subscription = (uint16_t)*p++;
+            subscription |= ((uint16_t)*p++ << 8);
+
+            printf("[bidib_parser] RESP_SUBSCRIPTION target=0x%02X uid=%02X:%02X:%02X:%02X:%02X ack_seq=%02X result=0x%02X sub=0x%04X\n",
+                targetMode, target_uid[0], target_uid[1], target_uid[2], target_uid[3], target_uid[4],
+                ack_seq, result, subscription);
+
+            if (result == 0x00) {
+                g_bidib_guest_enabled = 1;
+                if (targetMode == BIDIB_TARGET_MODE_DCCGEN) {
+                    printf("[bidib_parser] DCCGEN subscription confirmed → CS_DRIVE enabled\n");
+                    //memcpy(g_dccgen_target_uid, target_uid, 5);  // à stocker pour usage futur si besoin
+                    memcpy(guest_targets.dccgen_uid, target_uid, 5);
+                } else if (targetMode == BIDIB_TARGET_MODE_BOOSTER) {
+                    printf("[bidib_parser] BOOSTER subscription confirmed → BOOST_ON enabled\n");
+                    memcpy(guest_targets.booster_uid, target_uid, 5);
+                    //memcpy(g_booster_target_uid, target_uid, 5);
                 }
-            break;
+            } else {
+                printf("[bidib_parser] guest subscription REFUSED (result=0x%02X)\n", result);
+            }
+        break;
                 
             }
 
         // ── Messages non gérés ────────────────────────────────────────────────
         case MSG_SYS_CLOCK:   // 0x18
             break;
+        case MSG_LOCAL_SYNC:  // 0x74
+            break;
+
         default:
             printf("[bidib_parser] unhandled msg type=0x%02X\n", *msg_type);
             break;

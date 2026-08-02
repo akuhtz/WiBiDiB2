@@ -120,7 +120,10 @@
 //            2024-05-30       kw  changed DCCA
 //            2024-09-29       kw  added FEATURE_GEN_EXT_ENABLED for DCCA
 //            2024-10-03       kw  added namespace3, RW-storage
-//
+//            2025-02-02       ab  changed t_bidib_cs_accessory for MSG_CS_ACCESSORY with 256 aspects
+//            2026-04-04       kw  added BIDIB_PCFG_SERVO_EXTRA, BIDIB_PCFG_MOVE_TYPE (in use since 2022)
+//            2026-05-05       kw  added BIDIB_BST_DIAG_VIN
+//            2026-06-22       PM added new values in distributed control from AK
 //===============================================================================
 //
 // purpose:   common header for bidib protocol
@@ -258,8 +261,8 @@
 
 //-- distributed control messages
 #define MSG_DDIS                (MSG_DSTRM + 0x50)
-#define MSG_GUEST_RESP_SUBSCRIPTION_COUNT   (MSG_DDIS + 0x00) // 1:target_mode, 2:count
-#define MSG_GUEST_RESP_SUBSCRIPTION         (MSG_DDIS + 0x01) // 1:target_mode, 2..6:uid, 7:result, 8..9:subscription
+#define MSG_GUEST_RESP_SUBSCRIPTION_COUNT   (MSG_DDIS + 0x00) // 1:target_mode, 2..6:uid, 7:ack_seq, 8: result, 8..9: count
+#define MSG_GUEST_RESP_SUBSCRIPTION         (MSG_DDIS + 0x01) // 1:target_mode, 2..6:uid, 7:ack_seq, 8: result, 8..9: subscription
 #define MSG_GUEST_RESP_SENT                 (MSG_DDIS + 0x02) // 1:target_mode, 2..6:uid, 7:ack_seq, 8: result, 9..: details
 #define MSG_GUEST_RESP_NOTIFY               (MSG_DDIS + 0x03) // 1:target_mode, 2..6:uid, 7:sub_msg_num, 8: sub_msg_type, 9..:sub_data
 
@@ -378,9 +381,9 @@
 
 //-- distributed control messages
 #define MSG_UDIS                (MSG_USTRM + 0x50)
-#define MSG_GUEST_REQ_SUBSCRIBE           (MSG_UDIS + 0x00) // 1:target_mode, 2..6:uid (when mode=UID), 2..3/7..8:subscription
-#define MSG_GUEST_REQ_UNSUBSCRIBE         (MSG_UDIS + 0x01) // 1:target_mode, 2..6:uid (when mode=UID), 2..3/7..8:unsubscription
-#define MSG_GUEST_REQ_SEND                (MSG_UDIS + 0x02) // 1:target_mode, 2..6:uid (when mode=UID), 3/7:req_msg_type, 4../8..:req_data
+#define MSG_GUEST_REQ_SUBSCRIBE     (MSG_UDIS + 0x00) // 1:target_mode, 2..6:uid (when mode=UID), 2..3/7..8:subscription
+#define MSG_GUEST_REQ_UNSUBSCRIBE   (MSG_UDIS + 0x01) // 1:target_mode, 2..6:uid (when mode=UID), 2..3/7..8:unsubscription
+#define MSG_GUEST_REQ_SEND          (MSG_UDIS + 0x02) // 1:target_mode, 2..6:uid (when mode=UID), 3/7:req_msg_type, 4../8..:req_data
 
 //-- dcc control messages
 #define MSG_UGEN                (MSG_USTRM + 0x60)
