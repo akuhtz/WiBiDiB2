@@ -88,7 +88,7 @@ static bidib_rx_state_t bidib_rx_state = BIDIB_IDLE;
 static uint8_t bidib_build_header(uint8_t *buf, uint8_t msg_type, uint8_t nb_data) {
   uint8_t i = 0;
     buf[i++] = 1 + 1 + 1 + nb_data;  // addr + index + type + data
-    buf[i++] = 0x00;              // addr vers le maître, toujours 0
+    buf[i++] = 0x00;              // addr vers le host, toujours 0
     buf[i++] = bidib_get_tx_num(); // index
     buf[i++] = msg_type;           // type
     return i;                      // offset pour les data
@@ -302,8 +302,8 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             LOG_INFO(TAG,"invalid message length: %d",length);
         #endif  
         return 128;
-    }
-
+    }  
+    
     // Vérification adresse et extraction de la pile
     if (*bidib_rx_msg == 0) {
         // broadcast
@@ -459,7 +459,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             printf("[bidib_parser] GUEST_RESP_SENT result=0x%02X\n", msg_type[1]);
             break;
 
-        case MSG_GUEST_RESP_SUBSCRIPTION:   // 0x58
+        case MSG_GUEST_RESP_SUBSCRIPTION:   // 0x51
             {
                 uint8_t *p = msg_type + 1;
                 uint8_t targetMode = *p++;

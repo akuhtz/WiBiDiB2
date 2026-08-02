@@ -67,11 +67,8 @@ extern volatile uint8_t bidib_tx_ahead;
 // ─────────────────────────────────────────────────
 // Distributed control
 // ─────────────────────────────────────────────────
-// ─────────────────────────────────────────────────
-// Distributed control
-// ─────────────────────────────────────────────────
-#define BIDIB_TARGET_MODE_DCCGEN        0x0C
-#define BIDIB_TARGET_MODE_BOOSTER       0x09
+//#define BIDIB_TARGET_MODE_DCCGEN        0x0C
+//#define BIDIB_TARGET_MODE_BOOSTER       0x09
 
 // Bitfield SUBSCRIPTION 16 bits (downstream)
 #define SUBSCRIPTION_TRACK_SIGNAL       0x0040  // bit 6 = Track signal (DCC)
