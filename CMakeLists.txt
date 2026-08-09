@@ -54,8 +54,8 @@ pico_set_program_name(WiBiDiB "WiBiDiB")
 pico_set_program_version(WiBiDiB "0.1")
 
 # Sortie USB pour printf, UART désactivé
-pico_enable_stdio_uart(WiBiDiB 0)
-pico_enable_stdio_usb(WiBiDiB 1)
+pico_enable_stdio_uart(WiBiDiB 1)
+pico_enable_stdio_usb(WiBiDiB 0)
 
 # Bibliothèques
 target_link_libraries(WiBiDiB
