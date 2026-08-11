@@ -42,7 +42,7 @@ extern volatile uint8_t g_bidib_guest_enabled;
 // ─────────────────────────────────────────────────
 #define BIDIB_UID_CLASS     0x00
 #define BIDIB_UID_CLASSX    0x01
-#define BIDIB_UID_VID       0x13
+#define BIDIB_UID_VID       0x0D
 extern const uint8_t MyUniqueID[7];
 
 // ─────────────────────────────────────────────────

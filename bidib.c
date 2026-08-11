@@ -24,7 +24,7 @@ const uint8_t MyUniqueID[7] = {
     BIDIB_UID_CLASS,
     BIDIB_UID_CLASSX,
    
-    0x13, 0xBA, 0xF1, 0xB6, 0xBC
+    BIDIB_UID_VID, 0xBA, 0xF1, 0xB6, 0xBC
 };
 
 // ─────────────────────────────────────────────────
