@@ -1,13 +1,13 @@
 # WiBiDiB2 — BiDiB ↔ WiThrottle Gateway for Raspberry Pi Pico 2W
 
-WiBiDiB2 is a model railroad control gateway that bridges **BiDiB** (the model railroad bus protocol) and **WiThrottle** (the WiFi throttle protocol used by apps like Engine Driver). It runs on a **Raspberry Pi Pico 2W** and uses the onboard WiFi to act as an Access Point.
+WiBiDiB2 is a model railroad control gateway that bridges **BiDiB** (the model railroad bus protocol) and **WiThrottle** (the WiFi throttle protocol used by apps like Engine Driver). It runs on a **Raspberry Pi Pico 2W** and uses the onboard WiFi.
 
 ## Features
 
 - **BiDiB Interface** — 9-bit UART via PIO at 500 kbaud (GP18 TX, GP19 RX, GP6 DE/RE)
-- **WiFi Access Point** — configurable SSID/password, static IP 192.168.4.1
+- **WiFi Station (default)** — joins an existing WiFi network, IP via DHCP
+- **WiFi Access Point (fallback)** — hosts its own network if the STA connection fails, static IP 192.168.4.1 with built-in DHCP server
 - **WiThrottle TCP Server** — port 5550, up to 4 concurrent throttles
-- **DHCP Server** — built-in for clients connecting to the AP
 - **Distributed Control** — BiDiB guest subscription/send support (DCCgen target mode)
 - **Heartbeat Monitoring** — 10-second timeout with emergency stop
 
@@ -61,14 +61,17 @@ Open the project folder in VS Code with the Raspberry Pi Pico Extension installe
 
 Edit `include/config.h`:
 
-| Define               | Default          | Description                    |
-|----------------------|------------------|--------------------------------|
-| `WIFI_SSID`          | `"myssid"`       | WiFi AP SSID                   |
-| `WIFI_PASSWORD`      | `"mypassword"`   | WiFi AP password               |
-| `AP_IP_ADDR`         | `"192.168.4.1"`  | Static IP of the AP            |
-| `WITHROTTLE_PORT`    | `5550`           | WiThrottle TCP port            |
-| `MAX_CLIENTS`        | `4`              | Maximum simultaneous throttles |
-| `HEARTBEAT_TIMEOUT_S`| `10`             | Heartbeat timeout in seconds   |
+| Define               | Default              | Description                              |
+|----------------------|----------------------|------------------------------------------|
+| `WIFI_SSID`          | `"myssid"`           | STA: WiFi network to join                |
+| `WIFI_PASSWORD`      | `"mypassword"`       | STA: WiFi network password               |
+| `WIFI_STA_TIMEOUT_MS`| `20000`              | STA connect/DHCP timeout before AP fallback |
+| `WIFI_AP_SSID`       | `"myssid"`           | AP: fallback access point SSID           |
+| `WIFI_AP_PASSWORD`   | `"mypassword"`       | AP: fallback access point password       |
+| `AP_IP_ADDR`         | `"192.168.4.1"`      | Static IP of the AP                      |
+| `WITHROTTLE_PORT`    | `5550`               | WiThrottle TCP port                      |
+| `MAX_CLIENTS`        | `4`                  | Maximum simultaneous throttles           |
+| `HEARTBEAT_TIMEOUT_S`| `10`                 | Heartbeat timeout in seconds             |
 
 ## Protocol
 
@@ -82,7 +85,7 @@ WiBiDiB2/
 ├── main.c                        # Entry point & main loop
 ├── bidib.c                       # BiDiB PIO protocol (ISR-driven)
 ├── bidib_uart.pio                # PIO assembly (9-bit UART, 500k baud)
-├── tcp_server.c                  # WiFi AP + TCP server
+├── tcp_server.c                  # WiFi (STA + AP fallback) + TCP server
 ├── withrottle_if.c               # WiThrottle message processing
 ├── smartphone_if.c               # Throttle table management
 ├── bidib_client_parser.c         # BiDiB client message parser

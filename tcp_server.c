@@ -35,21 +35,66 @@ static err_t tcp_server_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err);
 static err_t tcp_server_recv_cb(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);
 static void  tcp_server_err_cb(void *arg, err_t err);
 
-// ─── Initialisation WiFi AP ───────────────────────────────────────────────────
+static bool wifi_try_sta(void);
+static bool wifi_start_ap(void);
+
+// ─── Initialisation WiFi ──────────────────────────────────────────────────────
 //
-// Équivalent de wifi_init_softap() ESP32
-// Le Pico 2W utilise cyw43_arch — démarrage en mode AP
+// Mode par défaut : STA (rejoint un réseau WiFi existant, IP via DHCP).
+// En cas d'échec/timeout → fallback en mode AP (comportement d'origine).
 //
-bool wifi_init_softap(void) {
-   if (cyw43_arch_init()) {
+// Le Pico 2W utilise cyw43_arch
+//
+bool wifi_init(void) {
+    if (cyw43_arch_init()) {
         LOG_ERROR(TAG, "cyw43_arch_init failed");
         return false;
     }
 
-    cyw43_arch_enable_ap_mode(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK);
+    if (wifi_try_sta()) {
+        return true;
+    }
+
+    LOG_WARN(TAG, "STA connect failed -- falling back to AP mode");
+    return wifi_start_ap();
+}
+
+// ─── Mode STA : rejoint un réseau WiFi existant ───────────────────────────────
+static bool wifi_try_sta(void) {
+    cyw43_arch_enable_sta_mode();
+
+    LOG_INFO(TAG, "Connecting to WiFi SSID:%s ...", WIFI_SSID);
+    int ret = cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD,
+                                                 CYW43_AUTH_WPA2_AES_PSK,
+                                                 WIFI_STA_TIMEOUT_MS);
+    if (ret != 0) {
+        LOG_ERROR(TAG, "STA connect failed, error %d", ret);
+        return false;
+    }
+
+    // Attendre l'attribution de l'IP (DHCP — démarré automatiquement par le SDK)
+    struct netif *sta_netif = &cyw43_state.netif[CYW43_ITF_STA];
+    uint32_t start = now_ms();
+    while (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) != CYW43_LINK_UP
+        || ip4_addr_isany_val(*netif_ip4_addr(sta_netif))) {
+        if (now_ms() - start > WIFI_STA_TIMEOUT_MS) {
+            LOG_ERROR(TAG, "STA DHCP/IP timeout");
+            return false;
+        }
+        cyw43_arch_poll();
+        sleep_ms(100);
+    }
+
+    LOG_INFO(TAG, "WiFi STA connected. IP: %s", ip4addr_ntoa(netif_ip4_addr(sta_netif)));
+    return true;
+}
+
+// ─── Mode AP : le Pico démarre son propre réseau ──────────────────────────────
+static bool wifi_start_ap(void) {
+    cyw43_arch_enable_ap_mode(WIFI_AP_SSID, WIFI_AP_PASSWORD, CYW43_AUTH_WPA2_AES_PSK);
 
     ip4_addr_t gw, mask;
-    ip4addr_aton("192.168.4.1",   &gw);
+    ip4addr_aton(AP_IP_ADDR, &gw);
     ip4addr_aton("255.255.255.0", &mask);
 
     // Configurer l'IP de l'interface AP
@@ -60,8 +105,8 @@ bool wifi_init_softap(void) {
     static dhcp_server_t dhcp_server;
     dhcp_server_init(&dhcp_server, (ip_addr_t*)&gw, (ip_addr_t*)&mask);
 
-    LOG_INFO(TAG, "WiFi AP started. SSID:%s", WIFI_SSID);
-    return true; 
+    LOG_INFO(TAG, "WiFi AP started. SSID: %s, IP: %s", WIFI_AP_SSID, ip4addr_ntoa(&gw));
+    return true;
 }
 
 // ─── Démarrage du serveur TCP ─────────────────────────────────────────────────

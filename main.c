@@ -39,14 +39,14 @@ int main(void)
     // ── WiFi AP + TCP WiThrottle ──────────────────────────────────────────────
     smartphone_if_init();   // init table throttle[] + UID BiDiB
 
-    if (!wifi_init_softap()) {
-        printf("WiFi AP ERREUR — on continue sans WiFi\n");
+    if (!wifi_init()) {
+        printf("WiFi ERREUR — on continue sans WiFi\n");
         // On ne bloque pas : le BiDiB seul reste fonctionnel
     } else {
         if (!tcp_server_init()) {
             printf("TCP server ERREUR\n");
         } else {
-            LOG_INFO(TAG,"WiFi AP + TCP OK — SSID:myssid port:5550");
+            LOG_INFO(TAG,"WiFi + TCP OK — port:5550");
         }
     }
 

@@ -7,11 +7,19 @@
 #ifndef CONFIG_H_
 #define CONFIG_H_
 
-// ─── WiFi AP ────────────────────────────────────────────────────────────────
-#define WIFI_SSID        "myssid"
-#define WIFI_PASSWORD    "mypassword"
+// ─── WiFi STA ─────────────────────────────────────────────────────────────────
+// Le Pico rejoint un réseau WiFi existant (mode par défaut)
+#define WIFI_SSID            "myssid"
+#define WIFI_PASSWORD        "mypassword"
+// Délai (ms) pour la connexion STA avant bascule en mode AP
+#define WIFI_STA_TIMEOUT_MS  20000
+
+// ─── WiFi AP ──────────────────────────────────────────────────────────────────
+// Fallback : le Pico démarre son propre réseau avec ce SSID/mot de passe
+#define WIFI_AP_SSID         "myssid"
+#define WIFI_AP_PASSWORD     "mypassword"
 // Adresse IP fixe du Pico en mode AP
-#define AP_IP_ADDR       "192.168.4.1"
+#define AP_IP_ADDR           "192.168.4.1"
 
 // ─── TCP serveur WiThrottle ──────────────────────────────────────────────────
 #define WITHROTTLE_PORT  5550
