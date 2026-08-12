@@ -63,7 +63,7 @@ bool wifi_init(void) {
 static bool wifi_try_sta(void) {
     cyw43_arch_enable_sta_mode();
 
-    LOG_INFO(TAG, "Connecting to WiFi SSID:%s ...", WIFI_SSID);
+    LOG_INFO(TAG, "Connecting to WiFi SSID: %s ...", WIFI_SSID);
     int ret = cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD,
                                                  CYW43_AUTH_WPA2_AES_PSK,
                                                  WIFI_STA_TIMEOUT_MS);

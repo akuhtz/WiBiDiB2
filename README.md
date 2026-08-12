@@ -73,6 +73,10 @@ Edit `include/config.h`:
 | `MAX_CLIENTS`        | `4`                  | Maximum simultaneous throttles           |
 | `HEARTBEAT_TIMEOUT_S`| `10`                 | Heartbeat timeout in seconds             |
 
+### Local network credentials
+
+To keep your STA credentials out of source control, copy `include/network_config.example.h` to `include/network_config.h` (git-ignored) and set `WIFI_SSID` / `WIFI_PASSWORD` there. If the file exists it overrides the `config.h` defaults; the firmware builds fine without it.
+
 ## Protocol
 
 - **WiThrottle** — standard protocol as used by JMRI WiThrottle / Engine Driver
@@ -94,6 +98,7 @@ WiBiDiB2/
 ├── dhcpserver/                   # DHCP server (from pico-examples)
 ├── include/                      # Header files
 │   ├── config.h
+│   ├── network_config.example.h  # Template for local STA credentials
 │   ├── datatypes.h
 │   ├── bidib.h
 │   ├── bidib_messages.h          # Official BiDiB message definitions
