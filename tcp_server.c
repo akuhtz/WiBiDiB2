@@ -27,6 +27,7 @@
 #include "withrottle_if.h"
 #include "smartphone_if.h"
 #include "dhcpserver/dhcpserver.h"
+#include "mdns.h"
 
 static const char *TAG = "tcp_server";
 
@@ -37,6 +38,9 @@ static void  tcp_server_err_cb(void *arg, err_t err);
 
 static bool wifi_try_sta(void);
 static bool wifi_start_ap(void);
+
+// Interface réseau active (STA si connecté, sinon AP) — utilisée par mDNS
+static struct netif *g_active_netif;
 
 // ─── Initialisation WiFi ──────────────────────────────────────────────────────
 //
@@ -86,6 +90,7 @@ static bool wifi_try_sta(void) {
     }
 
     LOG_INFO(TAG, "WiFi STA connected. IP: %s", ip4addr_ntoa(netif_ip4_addr(sta_netif)));
+    g_active_netif = sta_netif;
     return true;
 }
 
@@ -106,6 +111,7 @@ static bool wifi_start_ap(void) {
     dhcp_server_init(&dhcp_server, (ip_addr_t*)&gw, (ip_addr_t*)&mask);
 
     LOG_INFO(TAG, "WiFi AP started. SSID: %s, IP: %s", WIFI_AP_SSID, ip4addr_ntoa(&gw));
+    g_active_netif = ap_netif;
     return true;
 }
 
@@ -136,6 +142,9 @@ bool tcp_server_init(void) {
 
     tcp_accept(listen_pcb, tcp_server_accept_cb);
     LOG_INFO(TAG, "TCP server listening on port %d", WITHROTTLE_PORT);
+
+    // mDNS : annonce le service WiThrottle → découverte Engine Driver
+    mdns_init(g_active_netif);
     return true;
 }
 

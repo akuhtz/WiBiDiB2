@@ -44,6 +44,7 @@ pico_sdk_init()
     dhcpserver/dhcpserver.c
     bidib_client_parser.c
     bidib_client_if.c
+    mdns.c
 )
 
 # Générer le header C depuis le fichier PIO
@@ -66,6 +67,7 @@ target_link_libraries(WiBiDiB
     hardware_gpio
     pico_unique_id
     pico_cyw43_arch_lwip_poll   # WiFi + lwIP bare-metal
+    pico_lwip_mdns              # répondant mDNS (découverte Engine Driver)
 )
 
 target_include_directories(WiBiDiB PRIVATE
