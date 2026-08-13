@@ -34,7 +34,7 @@
 #include "bidib.h"
 #include "crc_8bit.h"
 #include "config.h"
-#include "crc_8bit.h"
+#include "features.h"
 #include "hardware/timer.h" 
 
 static const char *TAG = "bidib_client_parser";
@@ -164,11 +164,67 @@ static void bidib_send_sys_pversion(void) {
     send_bidib_message(message);
 }
 
-static void bidib_send_feature_count(uint8_t count) {
+// ─── Features (MSG_FEATURE_*) ──────────────────────────────────────────────────
+// Table des features supportés par le gateway (définie dans features.h).
+// Handling porté depuis ReadyTLE/features.c.
+
+static uint8_t bidib_feature2send = 0;   // curseur pour MSG_FEATURE_GETNEXT
+static uint8_t featureStreaming   = 0;   // 1 si l'hôte a demandé du streaming
+
+static void bidib_send_feature(uint8_t fnum, uint8_t fvalue) {
     uint8_t message[8];
-    uint8_t i = bidib_build_header(message, MSG_FEATURE_COUNT, 1);
-    message[i++] = count;
+    uint8_t i = bidib_build_header(message, MSG_FEATURE, 2);
+    message[i++] = fnum;
+    message[i++] = fvalue;
     send_bidib_message(message);
+}
+
+static void bidib_send_feature_na(uint8_t fnum) {
+    uint8_t message[8];
+    uint8_t i = bidib_build_header(message, MSG_FEATURE_NA, 1);
+    message[i++] = fnum;
+    send_bidib_message(message);
+}
+
+static void bidib_send_feature_count(uint8_t streaming) {
+    uint8_t message[8];
+    uint8_t i = bidib_build_header(message, MSG_FEATURE_COUNT, streaming ? 2 : 1);
+    message[i++] = NUM_OF_FEATURES;
+    if (streaming) message[i++] = streaming;
+    send_bidib_message(message);
+}
+
+static void get_feature(uint8_t fnum) {
+    for (uint8_t i = 0; i < NUM_OF_FEATURES; i++) {
+        if (g_features[i].num == fnum) {
+            bidib_send_feature(fnum, g_features[i].value);
+            return;
+        }
+    }
+    bidib_send_feature_na(fnum);  // feature inconnu
+}
+
+static void set_feature(uint8_t fnum, uint8_t fvalue) {
+    for (uint8_t i = 0; i < NUM_OF_FEATURES; i++) {
+        if (g_features[i].num == fnum) {
+            if (fvalue < g_features[i].min) fvalue = g_features[i].min;
+            if (fvalue > g_features[i].max) fvalue = g_features[i].max;
+            g_features[i].value = fvalue;
+            bidib_send_feature(fnum, g_features[i].value);  // écho de la valeur appliquée
+            return;
+        }
+    }
+    bidib_send_feature_na(fnum);  // feature inconnu
+}
+
+static void bidib_send_next_feature(void) {
+    if (bidib_feature2send < NUM_OF_FEATURES) {
+        bidib_send_feature(g_features[bidib_feature2send].num,
+                           g_features[bidib_feature2send].value);
+        bidib_feature2send++;
+    } else {
+        bidib_send_feature_na(255);  // tous envoyés
+    }
 }
 
 /*  not needed pico has no node attached to it
@@ -277,6 +333,8 @@ void set_bidib_state(uint8_t neu, uint8_t assigned_addr) {
         case BIDIB_DISCONNECTED:
             my_bidib_node_addr     = 0xFF;
             g_bidib_spontan_enabled = false;
+            bidib_feature2send = NUM_OF_FEATURES;  // fin de streaming
+            featureStreaming   = 0;
             bidib_flush_rx();
             bidib_flush_tx();
             bidib_rx_state = BIDIB_IDLE;
@@ -430,29 +488,24 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             break;
 
         case MSG_FEATURE_GETALL:   // 0x10
-            bidib_send_feature_count(0);  // 0 features pour l'instant
+            bidib_feature2send = 0;
+            featureStreaming = ((length - 3 - addr_depth) > 0) ? msg_type[1] : 0;
+            bidib_send_feature_count(featureStreaming);
             break;
 
-        // case MSG_FEATURE_GETALL:
-        //     bidib_feature2send = 0;
-        //     if (  (rest == 1)
-        //         && (bidib_rx_msg[4] == 1) )       // streaming = on
-        //         {
-        //         bidib_feature_streaming = 1;
-        //         bidib_send_twopara_msg(MSG_FEATURE_COUNT, sizeof(feature)/sizeof(feature[0]), 1);
-        //         }
-        //     else
-        //         {
-        //         bidib_feature_streaming = 0;
-        //         bidib_send_onepara_msg(MSG_FEATURE_COUNT, sizeof(feature)/sizeof(feature[0]));
-        //         }
-        //     break;
-        // case MSG_FEATURE_GETNEXT:
-        //     bidib_send_next_feature();
-        //     break;
-        // case MSG_FEATURE_GET:
-        //     get_feature(bidib_rx_msg[4]);
-        //     break;
+        case MSG_FEATURE_GETNEXT:  // 0x11
+            bidib_send_next_feature();
+            break;
+
+        case MSG_FEATURE_GET:      // 0x12
+            if ((length - 3 - addr_depth) > 0)
+                get_feature(msg_type[1]);
+            break;
+
+        case MSG_FEATURE_SET:      // 0x13
+            if ((length - 3 - addr_depth) > 1)
+                set_feature(msg_type[1], msg_type[2]);
+            break;
 
 /*  not needed pico has no node attached
         case MSG_NODETAB_GETALL:   // 0x0B
@@ -474,13 +527,13 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         case MSG_SYS_ENABLE:
             if (g_bidib_connect == BIDIB_CONNECTED) {
                 g_bidib_spontan_enabled = true;
-                printf("[bidib_parser] SYS_ENABLE → guest mode ON\n");
+                log_printf("[bidib_parser] SYS_ENABLE → guest mode ON\n");
                 #if (BIDIB_DISTRIBUTED_CONTROL == 1)
             if (!guest_subscribed) {
-                printf("[bidib_parser] sending SUBSCRIBE DCCGEN\n");
+                log_printf("[bidib_parser] sending SUBSCRIBE DCCGEN\n");
             bidib_guest_req_subscribe(BIDIB_TARGET_MODE_DCCGEN, 
                     SUBSCRIPTION_TRACK_SIGNAL);
-            printf("[bidib_parser] sending SUBSCRIBE BOOSTER\n");
+            log_printf("[bidib_parser] sending SUBSCRIBE BOOSTER\n");
             bidib_guest_req_subscribe(BIDIB_TARGET_MODE_BOOSTER, 
                                 SUBSCRIPTION_BOOSTER);
                 guest_subscribed = true;
@@ -491,11 +544,13 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
 
         case MSG_SYS_DISABLE:
             g_bidib_spontan_enabled = false;
-            printf("[bidib_parser] SYS_DISABLE → guest mode OFF\n");
+            bidib_feature2send = NUM_OF_FEATURES;  // fin de streaming
+            featureStreaming   = 0;
+            log_printf("[bidib_parser] SYS_DISABLE → guest mode OFF\n");
             break;
 
         case MSG_SYS_RESET:
-            printf("[bidib_parser] SYS_RESET → restarting\n");
+            log_printf("[bidib_parser] SYS_RESET → restarting\n");
             sleep_ms(500);
             break;
 
@@ -508,8 +563,8 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             break;
 
         case MSG_STRING_GET:
-            printf("[bidib_parser] MSG_STRING_GET → ns: 0x%02x\n", &bidib_rx_msg[4]);
-            user_string_get(&bidib_rx_msg[4]);
+            log_printf("[bidib_parser] MSG_STRING_GET → ns: 0x%02x\n", msg_type[1]);
+            user_string_get(msg_type + 1);   // msg_type[1]=ns, msg_type[2]=id
             break;
 
         // ── Logon ─────────────────────────────────────────────────────────────
@@ -532,11 +587,13 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
                 my_addr_stack[0] = assigned & 0x3F;  // adresse sans bit de parité
                 my_addr_depth    = 1;
 
-                printf("[bidib_parser] MSG_LOCAL_LOGON_ACK → addr=0x%02X\n", assigned);
+                log_printf("[bidib_parser] MSG_LOCAL_LOGON_ACK → addr=0x%02X\n", assigned);
                 bidib_rx_msg_num = 0;  // repart de zéro à chaque connexion
                 bidib_tx0_msg_num  = 0;
                 g_bidib_guest_enabled = 0;
                 guest_subscribed = false;
+                bidib_feature2send = 0;   // reset curseur features
+                featureStreaming   = 0;   // pas de streaming après logon
             }
             break;
 
@@ -547,18 +604,18 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             break;
 
         case MSG_LOCAL_SYNC:
-            printf("[bidib_parser] MSG_LOCAL_SYNC → time=0x%04x\n", ((int) msg_type[2]) << 6 | msg_type[1]);
+            log_printf("[bidib_parser] MSG_LOCAL_SYNC → time=0x%04x\n", ((int) msg_type[2]) << 6 | msg_type[1]);
             break;
 
         // ── Distributed Control — réponses de l'IF2 ou Central Station ──────────────────────────
         case MSG_GUEST_RESP_NOTIFY: // 0x52
-            printf("[bidib_parser] MSG_GUEST_RESP_NOTIFY → targetMode=0x%02x\n", msg_type[1]);
+            log_printf("[bidib_parser] MSG_GUEST_RESP_NOTIFY → targetMode=0x%02x\n", msg_type[1]);
             break;
 
         case MSG_GUEST_RESP_SENT:       // 0x52
             // Confirmation que l'IF2 ou Central Station a bien reçu notre REQ_SEND
             // msg_type[1] = RESULT (0=OK, autre=erreur)
-            printf("[bidib_parser] GUEST_RESP_SENT result=0x%02X\n", msg_type[1]);
+            log_printf("[bidib_parser] GUEST_RESP_SENT result=0x%02X\n", msg_type[1]);
             break;
 
         case MSG_GUEST_RESP_SUBSCRIPTION:   // 0x51
@@ -574,24 +631,24 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
                 subscription |= ((uint16_t)*p++ << 8);
 
 #if (DEBUG_MSG == 1)
-                printf("[bidib_parser] GUEST_RESP_SUBSCRIPTION target=0x%02X, uid=%02X %02X %02X %02X %02X, ackSequence=0x%02X, result=0x%02X sub=0x%04X\n",
+                log_printf("[bidib_parser] GUEST_RESP_SUBSCRIPTION target=0x%02X, uid=%02X %02X %02X %02X %02X, ackSequence=0x%02X, result=0x%02X sub=0x%04X\n",
                             targetMode, uid[0], uid[1], uid[2], uid[3], uid[4], ackSequence, result, subscription);
 #else
-                printf("[bidib_parser] GUEST_RESP_SUBSCRIPTION ackSequence=0x%02X, result=0x%02X sub=0x%04X\n",
+                log_printf("[bidib_parser] GUEST_RESP_SUBSCRIPTION ackSequence=0x%02X, result=0x%02X sub=0x%04X\n",
                             ackSequence, result, subscription);
 #endif
 
                 if (result == SUBSCRIPTION_ACK_OK || result == SUBSCRIPTION_ACK_CHANGED) {
                     g_bidib_guest_enabled = 1;
                     if (targetMode == BIDIB_TARGET_MODE_DCCGEN) {
-                        printf("[bidib_parser] DCCGEN subscription confirmed → CS_DRIVE enabled\n");
+                        log_printf("[bidib_parser] DCCGEN subscription confirmed → CS_DRIVE enabled\n");
                     } else if (targetMode == BIDIB_TARGET_MODE_BOOSTER) {
-                        printf("[bidib_parser] BOOSTER subscription confirmed → BOOST_ON enabled\n");
+                        log_printf("[bidib_parser] BOOSTER subscription confirmed → BOOST_ON enabled\n");
                     } else {
-                        printf("[bidib_parser] subscription confirmed for target=0x%02X\n", targetMode);
+                        log_printf("[bidib_parser] subscription confirmed for target=0x%02X\n", targetMode);
                     }
                 } else {
-                    printf("[bidib_parser] guest subscription REFUSED (result=0x%02X)\n", result);
+                    log_printf("[bidib_parser] guest subscription REFUSED (result=0x%02X)\n", result);
                 }
             }
             break;
@@ -609,9 +666,9 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
                 count |= ((uint16_t)*p++ << 8);
 
 #if (DEBUG_MSG == 1)
-                printf("[bidib_parser] MSG_GUEST_RESP_SUBSCRIPTION_COUNT → targetMode=0x%02X, uid=%02X %02X %02X %02X %02X, ackSequence=0x%02X, count=0x%04X\n", targetMode, uid[0], uid[1], uid[2], uid[3], uid[4], ackSequence, count);
+                log_printf("[bidib_parser] MSG_GUEST_RESP_SUBSCRIPTION_COUNT → targetMode=0x%02X, uid=%02X %02X %02X %02X %02X, ackSequence=0x%02X, count=0x%04X\n", targetMode, uid[0], uid[1], uid[2], uid[3], uid[4], ackSequence, count);
 #else
-                printf("[bidib_parser] MSG_GUEST_RESP_SUBSCRIPTION_COUNT → ackSequence=0x%02X, count=0x%04X\n", ackSequence, count);
+                log_printf("[bidib_parser] MSG_GUEST_RESP_SUBSCRIPTION_COUNT → ackSequence=0x%02X, count=0x%04X\n", ackSequence, count);
 #endif
             }
             break;
@@ -620,7 +677,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         case MSG_SYS_CLOCK:   // 0x18
             break;
         default:
-            printf("[bidib_parser] unhandled msg type=0x%02X\n", *msg_type);
+            log_printf("[bidib_parser] unhandled msg type=0x%02X\n", *msg_type);
             break;
     }
 
@@ -667,7 +724,16 @@ void run_bidib_client(void) {
     }
 
    
-    // ── 2. Lecture du buffer RX et assemblage des paquets ────────────────────
+    // ── 2. Feature streaming (MSG_FEATURE_GETALL mode=1) ────────────────────
+    // L'hôte a demandé le streaming : on envoie les features un par un,
+    // sans attendre MSG_FEATURE_GETNEXT (identique Atmel/ReadyTLE).
+    if ((featureStreaming == 1) && (bidib_feature2send < NUM_OF_FEATURES)) {
+        if (bidib_tx_fifo_okay()) {
+            bidib_send_next_feature();
+        }
+    }
+
+    // ── 3. Lecture du buffer RX et assemblage des paquets ────────────────────
     while (bidib_rx_ready()) {
         uint16_t raw    = bidib_rx_read();
         uint8_t  byte   = (uint8_t)(raw & 0xFF);
