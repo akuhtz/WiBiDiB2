@@ -19,6 +19,7 @@
 
 void    log_init(void);
 void    log_printf(const char *fmt, ...);
+int     log_snprintf(char *buf, size_t size, const char *fmt, ...);
 void    log_poll(void);
 
 #endif /* LOG_H_ */

@@ -56,7 +56,7 @@ static int     Throttle_g = 0;
 
 // ─── throttle_stop() ─────────────────────────────────────────────────────────
 void throttle_stop(uint8_t slot) {
-    printf("[withrottle_if] throttle_stop slot %d\n", slot);
+    log_printf("[withrottle_if] throttle_stop slot %d\n", slot);
     
     heartbeatEnable[slot] = false;
     heartbeat[slot]       = 0;
@@ -168,7 +168,7 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
     char    locoAddress[10] = {};
     
     LOG_INFO(TAG,"locoAction th=%s ak=%s", th, ak );
-    snprintf(locoAddress, sizeof(locoAddress), "%d", Loco[slot].dccAdress);
+    log_snprintf(locoAddress, sizeof(locoAddress), "%d", Loco[slot].dccAdress);
 
     // '*' : remplacer par l'actionKey réelle sauvegardée
     if (ak[0] == '*') {
@@ -303,7 +303,7 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
     // ── Q : quit loco ─────────────────────────────────────────────────────────
     else if (ak[0] == 'Q') {
         Loco[slot].newSpeed = 0;
-        printf("dcc %d QUIT\n", Loco[slot].dccAdress);
+        log_printf("dcc %d QUIT\n", Loco[slot].dccAdress);
     }
 }
 
@@ -356,7 +356,7 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
         LOG_INFO(TAG, "N (device name) slot %d, heartbeat=%ds",
                  slot, heartbeatTimeout);
         char str[10];
-        snprintf(str, sizeof(str), "*%d\n\n", heartbeatTimeout);
+        log_snprintf(str, sizeof(str), "*%d\n\n", heartbeatTimeout);
         send_msg(pcb, (int)strlen(str), str);
         tcp_output(pcb);
     }
@@ -375,7 +375,7 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
     else if (data->msg[0] == 'P') {
         if (data->msg[1] == 'P' && data->msg[2] == 'A') {
             char stri[10];
-            snprintf(stri, sizeof(stri), "PPA%c\n\n", data->msg[3]);
+            log_snprintf(stri, sizeof(stri), "PPA%c\n\n", data->msg[3]);
             send_msg(pcb, (int)strlen(stri), stri);
             tcp_output(pcb);
             // Traduire PPA en BiDiB boost
@@ -390,7 +390,7 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
 
     // ── 'M' multithrottle ────────────────────────────────────────────────────
     else if (data->msg[0] == 'M') {
-      //  printf("[withrottle_if] case M\n");
+      //  log_printf("[withrottle_if] case M\n");
         LOG_INFO(TAG," case M ");
         char th[3] = {};
         th[0] = data->msg[1];  // '0' pour Engine Driver
@@ -427,7 +427,7 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
         if (action == '+') {
             int k = (int)strtol(LocoAdress_g, NULL, 10);
             Loco[slot].dccAdress = k;
-           // printf("[withrottle_if] locoAdd th=%s ak=%s dcc=%d slot=%d\n",
+           // log_printf("[withrottle_if] locoAdd th=%s ak=%s dcc=%d slot=%d\n",
            //       th, actionKey_g, k, slot);
             LOG_INFO(TAG," loco+  ak=%s dcc=%d slot=%d", actionKey_g, k, slot );
             

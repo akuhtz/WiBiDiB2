@@ -35,6 +35,18 @@ void log_init(void) {
     log_tail = 0;
 }
 
+static void log_push(const char *data, int n) {
+    uint32_t ints = save_and_disable_interrupts();
+    for (int i = 0; i < n; i++) {
+        log_ring[log_head] = (uint8_t)data[i];
+        log_head = (log_head + 1) % LOG_RING_SIZE;
+        if (log_head == log_tail) {
+            log_tail = (log_tail + 1) % LOG_RING_SIZE;  // surcharge → drop
+        }
+    }
+    restore_interrupts(ints);
+}
+
 void log_printf(const char *fmt, ...) {
     char tmp[256];
     va_list ap;
@@ -43,16 +55,22 @@ void log_printf(const char *fmt, ...) {
     va_end(ap);
     if (n < 0) n = 0;
     if (n > (int)sizeof(tmp) - 1) n = (int)sizeof(tmp) - 1;
+    log_push(tmp, n);
+}
 
-    uint32_t ints = save_and_disable_interrupts();
-    for (int i = 0; i < n; i++) {
-        log_ring[log_head] = (uint8_t)tmp[i];
-        log_head = (log_head + 1) % LOG_RING_SIZE;
-        if (log_head == log_tail) {
-            log_tail = (log_tail + 1) % LOG_RING_SIZE;  // surcharge → drop
-        }
+// Comme snprintf() mais en plus pousse la chaîne résultante dans le ring buffer
+// (utile pour tracer les réponses TCP tout en remplissant le buffer d'envoi).
+int log_snprintf(char *buf, size_t size, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, size, fmt, ap);
+    va_end(ap);
+    if (n > 0) {
+        int log_n = n;
+        if (size > 0 && log_n >= (int)size) log_n = (int)size - 1;  // tronqué
+        log_push(buf, log_n);
     }
-    restore_interrupts(ints);
+    return n;   // même sémantique que snprintf
 }
 
 void log_poll(void) {
