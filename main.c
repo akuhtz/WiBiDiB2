@@ -29,15 +29,15 @@ int main(void)
     LOG_INFO(TAG,"=== WI_BIDIB_ED Pico 2W v0.2 ===");
     stdio_flush();
 
-    // ── BiDiB PIO (inchangé) ──────────────────────────────────────────────────
-    // ISR RX/TX enregistrées dans bidib_init(), tournent en hardware
-    bidib_init();
-    LOG_INFO(TAG,"BiDiB PIO OK");
-    init_bidib_client();
-    LOG_INFO(TAG,"BiDiB client init OK");
+    // // ── BiDiB PIO (inchangé) ──────────────────────────────────────────────────
+    // // ISR RX/TX enregistrées dans bidib_init(), tournent en hardware
+    // bidib_init();
+    // LOG_INFO(TAG,"BiDiB PIO OK");
+    // init_bidib_client();
+    // LOG_INFO(TAG,"BiDiB client init OK");
 
-    // ── WiFi AP + TCP WiThrottle ──────────────────────────────────────────────
-    smartphone_if_init();   // init table throttle[] + UID BiDiB
+    // // ── WiFi AP + TCP WiThrottle ──────────────────────────────────────────────
+    // smartphone_if_init();   // init table throttle[] + UID BiDiB
 
     if (!wifi_init()) {
         printf("WiFi ERREUR — on continue sans WiFi\n");
@@ -52,6 +52,15 @@ int main(void)
 
     printf("Boucle principale\n");
 
+    // ── BiDiB PIO (inchangé) ──────────────────────────────────────────────────
+    // ISR RX/TX enregistrées dans bidib_init(), tournent en hardware
+    bidib_init();
+    LOG_INFO(TAG,"BiDiB PIO OK");
+    init_bidib_client();
+    LOG_INFO(TAG,"BiDiB client init OK");
+
+    // ── WiFi AP + TCP WiThrottle ──────────────────────────────────────────────
+    smartphone_if_init();   // init table throttle[] + UID BiDiB
 
     // ── Boucle principale ─────────────────────────────────────────────────────
     //
