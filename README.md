@@ -8,8 +8,12 @@ WiBiDiB2 is a model railroad control gateway that bridges **BiDiB** (the model r
 - **WiFi Station (default)** — joins an existing WiFi network, IP via DHCP
 - **WiFi Access Point (fallback)** — hosts its own network if the STA connection fails, static IP 192.168.4.1 with built-in DHCP server
 - **WiThrottle TCP Server** — port 5550, up to 4 concurrent throttles
+- **mDNS Discovery** — advertises `WiBiDiB._withrottle._tcp.local.` so Engine Driver finds the gateway automatically (STA and AP modes)
+- **BiDiB Features** — `MSG_FEATURE_GETALL`/`GETNEXT`/`GET`/`SET` support with streaming (STRING_SIZE, STRING_DEBUG, FW_UPDATE_MODE, RELEVANT_PID_BITS)
+- **User Strings** — `MSG_STRING_GET` returns the vendor (`WiBiDiB2`) and user (`Cool WiBiDiB2`) strings
 - **Distributed Control** — BiDiB guest subscription/send support (DCCgen target mode)
 - **Heartbeat Monitoring** — 10-second timeout with emergency stop
+- **Non-blocking logging** — ring buffer drained to UART (debug probe bridge) without blocking the main loop
 
 ## Hardware Requirements
 
@@ -80,6 +84,7 @@ To keep your STA credentials out of source control, copy `include/network_config
 ## Protocol
 
 - **WiThrottle** — standard protocol as used by JMRI WiThrottle / Engine Driver
+- **mDNS** — service `WiBiDiB._withrottle._tcp.local.`, port 5550; the gateway is discovered automatically by Engine Driver, no manual IP/port entry needed
 - **BiDiB** — protocol version 0.8, distributed control (rev 1.29) for DCCgen target mode
 
 ## Project Structure
@@ -95,6 +100,8 @@ WiBiDiB2/
 ├── bidib_client_parser.c         # BiDiB client message parser
 ├── bidib_client_if.c             # BiDiB client interface
 ├── crc_8bit.c                    # CRC-8 for BiDiB frames
+├── log.c                         # Non-blocking ring-buffer logging (UART)
+├── mdns.c                        # mDNS responder (_withrottle._tcp)
 ├── dhcpserver/                   # DHCP server (from pico-examples)
 ├── include/                      # Header files
 │   ├── config.h
@@ -103,6 +110,9 @@ WiBiDiB2/
 │   ├── bidib.h
 │   ├── bidib_messages.h          # Official BiDiB message definitions
 │   ├── bidib_distributed_control.h
+│   ├── features.h                # WiThrottle node feature table
+│   ├── log.h
+│   ├── mdns.h
 │   ├── tcp_server.h
 │   ├── withrottle_if.h
 │   ├── smartphone_if.h

@@ -18,5 +18,10 @@
 #ifndef LWIP_NUM_NETIF_CLIENT_DATA
 #define LWIP_NUM_NETIF_CLIENT_DATA  1
 #endif
+// mDNS (probe, announce, restart) ajoute des sys_timeout en plus du pool
+// interne calculé par lwIP → agrandir le pool pour éviter le PANIC
+#ifndef MEMP_NUM_SYS_TIMEOUT
+#define MEMP_NUM_SYS_TIMEOUT        16
+#endif
 
 #endif
