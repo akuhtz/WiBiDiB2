@@ -18,6 +18,7 @@
 #include "tcp_server.h"
 #include "smartphone_if.h"
 #include "bidib_client_parser.h"
+#include "flash_store.h"
 #include "config.h"
 
 static const char *TAG = "main";
@@ -62,6 +63,13 @@ int main(void)
 
     // ── WiFi AP + TCP WiThrottle ──────────────────────────────────────────────
     smartphone_if_init();   // init table throttle[] + UID BiDiB
+
+    // ── Flash externe W25Q32VFSIG (SPI1) ────────────────────────────────────
+    // Non bloquant pour BiDiB : les ISR PIO (priorité 0) tournent pendant
+    // les transferts SPI. En cas d'absence du circuit, on continue.
+    if (!flash_store_init()) {
+        LOG_WARN(TAG, "flash externe absente — on continue sans stockage");
+    }
 
     // ── Boucle principale ─────────────────────────────────────────────────────
     //

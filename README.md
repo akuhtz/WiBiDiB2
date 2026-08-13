@@ -14,6 +14,7 @@ WiBiDiB2 is a model railroad control gateway that bridges **BiDiB** (the model r
 - **Distributed Control** — BiDiB guest subscription/send support (DCCgen target mode)
 - **Heartbeat Monitoring** — 10-second timeout with emergency stop
 - **Non-blocking logging** — ring buffer drained to UART (debug probe bridge) without blocking the main loop
+- **External Flash Storage** — optional W25Q32VFSIG (4 MB SPI NOR) on SPI1 for persistent data (e.g. runtime-configurable WiFi credentials); SPI transfers do not block the BiDiB PIO ISRs
 
 ## Hardware Requirements
 
@@ -22,6 +23,12 @@ WiBiDiB2 is a model railroad control gateway that bridges **BiDiB** (the model r
   - Pico GP18 → DI (driver input)
   - Pico GP19 → RO (receiver output)
   - Pico GP6  → DE/RE (driver/receiver enable)
+- W25Q32VFSIG SPI flash (optional) — 32 Mbit (4 MB) SPI NOR in SOIC-8, wired to SPI1:
+  - Pico GP10 → CLK (W25Q32 pin 6)
+  - Pico GP11 → DI/MOSI (W25Q32 pin 5)
+  - Pico GP12 → DO/MISO (W25Q32 pin 2)
+  - Pico GP13 → CS# (W25Q32 pin 1)
+  - W25Q32 pin 8 → 3.3 V, pin 4 → GND; tie WP# (pin 3) and HOLD# (pin 7) to 3.3 V
 
 ## Building
 
@@ -81,6 +88,14 @@ Edit `include/config.h`:
 
 To keep your STA credentials out of source control, copy `include/network_config.example.h` to `include/network_config.h` (git-ignored) and set `WIFI_SSID` / `WIFI_PASSWORD` there. If the file exists it overrides the `config.h` defaults; the firmware builds fine without it.
 
+## Flash Storage
+
+The optional external W25Q32VFSIG (Winbond, 4 MB SPI NOR) is probed at boot on SPI1 (`flash_store_init()`). If the chip is missing or miswired, the gateway continues without storage — it never blocks startup.
+
+- Reads and writes are **synchronous but IRQ-safe**: `spi_write/read_blocking()` keep interrupts enabled, so the BiDiB PIO ISRs (priority 0) keep draining the RX FIFO during transfers. Unlike onboard XIP flash writes, external SPI does **not** stall the system.
+- Writes preserve untouched data in the affected 4 KB sectors (read-modify-write) and program page-by-page (256 bytes).
+- API: `flash_store_read()`, `flash_store_write()`, `flash_store_erase_all()`, `flash_store_jedec_id()`.
+
 ## Protocol
 
 - **WiThrottle** — standard protocol as used by JMRI WiThrottle / Engine Driver
@@ -102,6 +117,7 @@ WiBiDiB2/
 ├── crc_8bit.c                    # CRC-8 for BiDiB frames
 ├── log.c                         # Non-blocking ring-buffer logging (UART)
 ├── mdns.c                        # mDNS responder (_withrottle._tcp)
+├── flash_store.c                 # W25Q32VFSIG external SPI flash driver
 ├── dhcpserver/                   # DHCP server (from pico-examples)
 ├── include/                      # Header files
 │   ├── config.h
@@ -113,6 +129,7 @@ WiBiDiB2/
 │   ├── features.h                # WiThrottle node feature table
 │   ├── log.h
 │   ├── mdns.h
+│   ├── flash_store.h             # Flash pin config + API
 │   ├── tcp_server.h
 │   ├── withrottle_if.h
 │   ├── smartphone_if.h

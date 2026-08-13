@@ -45,6 +45,7 @@ pico_sdk_init()
     bidib_client_parser.c
     bidib_client_if.c
     mdns.c
+    flash_store.c
 )
 
 # Générer le header C depuis le fichier PIO
@@ -68,6 +69,7 @@ target_link_libraries(WiBiDiB
     pico_unique_id
     pico_cyw43_arch_lwip_poll   # WiFi + lwIP bare-metal
     pico_lwip_mdns              # répondant mDNS (découverte Engine Driver)
+    hardware_spi                # SPI1 → flash W25Q32VFSIG
 )
 
 target_include_directories(WiBiDiB PRIVATE
