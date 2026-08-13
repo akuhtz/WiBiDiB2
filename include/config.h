@@ -55,4 +55,8 @@
 // ─── Distributed control ────────────────────────────────────────────────────────
 #define BIDIB_DISTRIBUTED_CONTROL  1
 
+// ---- BiDiB ------------
+#define BIDIB_STRING_MAX           24      // Zeichenlänge für Strings
+
+
 #endif /* CONFIG_H_ */

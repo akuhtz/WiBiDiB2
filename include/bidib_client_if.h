@@ -34,8 +34,9 @@
 // Identique Atmel — utilisé par bidib_client_parser.c
 typedef struct {
     uint8_t size;           // nb octets qui suivent (sans size)
-    uint8_t addr_stack[4];  // pile d'adresses (jusqu'à 4 niveaux)
-    uint8_t terminator;     // toujours 0x00 — fin de pile d'adresses
+    uint8_t node_addr;
+    // uint8_t addr_stack[4];  // pile d'adresses (jusqu'à 4 niveaux)
+    // uint8_t terminator;     // toujours 0x00 — fin de pile d'adresses
     uint8_t index;          // numéro de séquence
     uint8_t msg_type;       // type de message BiDiB
 } t_node_message_header;

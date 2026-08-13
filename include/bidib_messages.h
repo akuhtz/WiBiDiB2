@@ -258,8 +258,8 @@
 
 //-- distributed control messages
 #define MSG_DDIS                (MSG_DSTRM + 0x50)
-#define MSG_GUEST_RESP_SUBSCRIPTION_COUNT   (MSG_DDIS + 0x00) // 1:target_mode, 2:count
-#define MSG_GUEST_RESP_SUBSCRIPTION         (MSG_DDIS + 0x01) // 1:target_mode, 2..6:uid, 7:result, 8..9:subscription
+#define MSG_GUEST_RESP_SUBSCRIPTION_COUNT   (MSG_DDIS + 0x00) // 1:target_mode, 2..6:uid, 7:ack_seq, 8: result, 9..10:count
+#define MSG_GUEST_RESP_SUBSCRIPTION         (MSG_DDIS + 0x01) // 1:target_mode, 2..6:uid, 7:ack_seq, 8: result, 9..10:subscription
 #define MSG_GUEST_RESP_SENT                 (MSG_DDIS + 0x02) // 1:target_mode, 2..6:uid, 7:ack_seq, 8: result, 9..: details
 #define MSG_GUEST_RESP_NOTIFY               (MSG_DDIS + 0x03) // 1:target_mode, 2..6:uid, 7:sub_msg_num, 8: sub_msg_type, 9..:sub_data
 

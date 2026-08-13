@@ -189,6 +189,55 @@ static void bidib_send_nodetab(void) {
 }
 */
 
+const char vendor_string[] = "WiBiDiB2";
+const char user_string[] = "Cool WiBiDiB2";
+
+static void bidib_send_string_vendor(void) {
+    t_node_message28 message;
+    message.header.node_addr = 0;
+    message.header.index = bidib_get_tx_num();
+    message.header.msg_type = MSG_STRING;
+    message.data[0] = 0;                        // Name space
+    message.data[1] = 0;                        // string_id
+    message.data[2] = sizeof(vendor_string)-1;  // size
+    memcpy(&message.data[3], vendor_string, sizeof(vendor_string)-1);
+    message.header.size = 3+3+sizeof(vendor_string)-1;      // 3= sizeof(t_node_message_header)-1
+    send_bidib_message((unsigned char *)&message);
+}
+
+static void bidib_send_string_username(void) {
+    t_node_message28 message;
+    // uint8_t i = bidib_build_header(message, MSG_STRING, 3);
+    message.header.node_addr = 0;
+    message.header.index = bidib_get_tx_num();
+    message.header.msg_type = MSG_STRING;
+    message.data[0] = 0;                        // Name space
+    message.data[1] = 1;                        // string_id
+    message.data[2] = strlen(user_string);   // size
+    if (message.data[2] > BIDIB_STRING_MAX) message.data[2] = BIDIB_STRING_MAX;
+    memcpy(&message.data[3], user_string, message.data[2]);
+    message.header.size = 3+3+message.data[2];      // 3= sizeof(t_node_message_header)-1
+    send_bidib_message((unsigned char *)&message);
+}
+
+static void user_string_get(unsigned char* msg) {
+    if (*msg == 0)
+      {
+        if (*(msg+1) == 0) { bidib_send_string_vendor();     return;  }
+        if (*(msg+1) == 1) { bidib_send_string_username();   return;  }
+      }
+    t_node_message28 message;
+    // uint8_t i = bidib_build_header(message, MSG_STRING, 3);
+    message.header.node_addr = 0;
+    message.header.index = bidib_get_tx_num();
+    message.header.msg_type = MSG_STRING;
+    message.data[0] = *msg;                        // Name space
+    message.data[1] = *(msg+1);                    // string_id
+    message.data[2] = 0;                           // size
+    message.header.size = 3+3;                     // 3= sizeof(t_node_message_header)-1
+    send_bidib_message((unsigned char *)&message);
+}
+
 static void bidib_send_error(uint8_t error_num, uint8_t error_para) {
     uint8_t message[8];
     uint8_t i = bidib_build_header(message, MSG_SYS_ERROR, 2);
@@ -365,6 +414,28 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         case MSG_FEATURE_GETALL:   // 0x10
             bidib_send_feature_count(0);  // 0 features pour l'instant
             break;
+
+        // case MSG_FEATURE_GETALL:
+        //     bidib_feature2send = 0;
+        //     if (  (rest == 1)
+        //         && (bidib_rx_msg[4] == 1) )       // streaming = on
+        //         {
+        //         bidib_feature_streaming = 1;
+        //         bidib_send_twopara_msg(MSG_FEATURE_COUNT, sizeof(feature)/sizeof(feature[0]), 1);
+        //         }
+        //     else
+        //         {
+        //         bidib_feature_streaming = 0;
+        //         bidib_send_onepara_msg(MSG_FEATURE_COUNT, sizeof(feature)/sizeof(feature[0]));
+        //         }
+        //     break;
+        // case MSG_FEATURE_GETNEXT:
+        //     bidib_send_next_feature();
+        //     break;
+        // case MSG_FEATURE_GET:
+        //     get_feature(bidib_rx_msg[4]);
+        //     break;
+
 /*  not needed pico has no node attached
         case MSG_NODETAB_GETALL:   // 0x0B
             bidib_send_nodetab_count();
@@ -418,8 +489,13 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             bidib_send_onepara_msg(MSG_SYS_ERROR, 0);
             break;
 
+        case MSG_STRING_GET:
+            printf("[bidib_parser] MSG_STRING_GET → ns: 0x%02x\n", &bidib_rx_msg[4]);
+            user_string_get(&bidib_rx_msg[4]);
+            break;
+
         // ── Logon ─────────────────────────────────────────────────────────────
-        case MSG_LOGON_ACK:         // 0x70
+        case MSG_LOCAL_LOGON_ACK:         // 0x70
         // send      0x0B 0A 00 00 F0 80 00 13 BA F1 86 BC 89
         // RX 0x100 0C 0B 00 00 70 01 80 00 13 BA F1 86 BC 46
             // msg_type[1] = NODE_ADDR assignée
@@ -438,7 +514,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
                 my_addr_stack[0] = assigned & 0x3F;  // adresse sans bit de parité
                 my_addr_depth    = 1;
 
-                printf("[bidib_parser] LOGON_ACK → addr=0x%02X\n", assigned);
+                printf("[bidib_parser] MSG_LOCAL_LOGON_ACK → addr=0x%02X\n", assigned);
                 bidib_rx_msg_num = 0;  // repart de zéro à chaque connexion
                 bidib_tx0_msg_num  = 0;
                 g_bidib_guest_enabled = 0;
@@ -452,24 +528,34 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             }
             break;
 
+        case MSG_LOCAL_SYNC:
+            printf("[bidib_parser] MSG_LOCAL_SYNC → time=0x%04x\n", ((int) msg_type[2]) << 6 | msg_type[1]);
+            break;
+
         // ── Distributed Control — réponses de l'IF2 ou Central Station ──────────────────────────
-        case MSG_GUEST_RESP_SENT:       // 0x59
+        case MSG_GUEST_RESP_NOTIFY: // 0x52
+            printf("[bidib_parser] MSG_GUEST_RESP_NOTIFY → targetMode=0x%02x\n", msg_type[1]);
+            break;
+
+        case MSG_GUEST_RESP_SENT:       // 0x52
             // Confirmation que l'IF2 ou Central Station a bien reçu notre REQ_SEND
             // msg_type[1] = RESULT (0=OK, autre=erreur)
             printf("[bidib_parser] GUEST_RESP_SENT result=0x%02X\n", msg_type[1]);
             break;
 
-        case MSG_GUEST_RESP_SUBSCRIPTION:   // 0x58
+        case MSG_GUEST_RESP_SUBSCRIPTION:   // 0x51
             {
                 uint8_t *p = msg_type + 1;
                 uint8_t targetMode = *p++;
+                *p+= 5;
                
-                uint8_t ackApproval = *p++;
+                uint8_t ackSequence = *p++;
+                uint8_t result = *p++;
                 uint16_t subscription = (uint16_t)*p++;
                 subscription |= ((uint16_t)*p++ << 8);
-                printf("[bidib_parser] GUEST_RESP_SUBSCRIPTION target=0x%02X ack=0x%02X sub=0x%04X\n",
-                            targetMode, ackApproval, subscription);
-               if (ackApproval == SUBSCRIPTION_ACK_OK || ackApproval == SUBSCRIPTION_ACK_CHANGED) {
+                printf("[bidib_parser] GUEST_RESP_SUBSCRIPTION target=0x%02X, ackSequence=0x%02X, result=0x%02X sub=0x%04X\n",
+                            targetMode, ackSequence, result, subscription);
+                if (result == SUBSCRIPTION_ACK_OK || result == SUBSCRIPTION_ACK_CHANGED) {
                     g_bidib_guest_enabled = 1;
                     if (targetMode == BIDIB_TARGET_MODE_DCCGEN) {
                         printf("[bidib_parser] DCCGEN subscription confirmed → CS_DRIVE enabled\n");
@@ -479,11 +565,25 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
                         printf("[bidib_parser] subscription confirmed for target=0x%02X\n", targetMode);
                     }
                 } else {
-                    printf("[bidib_parser] guest subscription REFUSED (ack=0x%02X)\n", ackApproval);
+                    printf("[bidib_parser] guest subscription REFUSED (result=0x%02X)\n", result);
                 }
-            break;
-                
             }
+            break;
+
+        case MSG_GUEST_RESP_SUBSCRIPTION_COUNT: // 0x50
+            {
+                uint8_t *p = msg_type + 1;
+                uint8_t targetMode = *p++;
+                *p+= 5;
+
+                uint8_t ackSequence = *p++;
+                uint8_t result = *p++;
+                uint16_t count = (uint16_t)*p++;
+                count |= ((uint16_t)*p++ << 8);
+
+                printf("[bidib_parser] MSG_GUEST_RESP_SUBSCRIPTION_COUNT → targetMode=0x%02X, ackSequence=0x%02X, count=0x%02X\n", targetMode, ackSequence, count);
+            }
+            break;
 
         // ── Messages non gérés ────────────────────────────────────────────────
         case MSG_SYS_CLOCK:   // 0x18
