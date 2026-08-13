@@ -13,6 +13,9 @@
 #include "bidib.h"          // bidib_state_t, BIDIB_PIN_DE, MyUniqueID
 #include "bidib_messages.h"
 
+
+#define DEBUG_MSG                    1 // verbose message logging
+
 // ─── Tailles buffers ──────────────────────────────────────────────────────────
 #define BIDIB_TX_BUF_SIZE           128     // DOIT être puissance de 2
 #define BIDIB_TX_BUF_REST_READY      16

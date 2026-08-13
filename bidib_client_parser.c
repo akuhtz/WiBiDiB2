@@ -364,12 +364,12 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         return 128;
     }
 
-    #if (DEBUG == 1)
-    printf("[bidib_parser] raw msg (%d bytes): ", length + 1);
+#if (DEBUG_MSG == 1)
+    log_printf("[bidib_parser] raw msg (%d bytes): ", length + 1);
     for (uint8_t k = 0; k <= length; k++)
-        printf("%02X ", bidib_rx_msg[k - 1]);
-    printf("\n");
-    #endif
+        log_printf("%02X ", bidib_rx_msg[k - 1]);
+    log_printf("\n");
+#endif
 
     // Vérification adresse et extraction de la pile
     if (*bidib_rx_msg == 0) {
@@ -401,9 +401,9 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
     // Pointer sur le type de message
     msg_type = bidib_rx_msg;
 
-    #if (DEBUG == 1)
+#if (DEBUG_MSG == 1)
     LOG_INFO(TAG,"rx msg type=0x%02X addr=[%d]",*msg_type, addr_stack[0]);
-    #endif
+#endif
 
     switch (*msg_type) {
 
@@ -414,8 +414,8 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             busy_wait_us_32(4);
             gpio_put(BIDIB_PIN_TEST , 0);
             */
-        #if (DEBUG == 1)       
-        printf("addr_stack=%02X depth=%d\n", my_addr_stack[0], my_addr_depth);
+        #if (DEBUG_MSG == 1)
+        log_printf("addr_stack=%02X depth=%d\n", my_addr_stack[0], my_addr_depth);
         #endif
           bidib_send_sys_magic();
 
@@ -573,7 +573,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
                 uint16_t subscription = (uint16_t)*p++;
                 subscription |= ((uint16_t)*p++ << 8);
 
-#if (DEBUG == 1)
+#if (DEBUG_MSG == 1)
                 printf("[bidib_parser] GUEST_RESP_SUBSCRIPTION target=0x%02X, uid=%02X %02X %02X %02X %02X, ackSequence=0x%02X, result=0x%02X sub=0x%04X\n",
                             targetMode, uid[0], uid[1], uid[2], uid[3], uid[4], ackSequence, result, subscription);
 #else
@@ -608,7 +608,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
                 uint16_t count = (uint16_t)*p++;
                 count |= ((uint16_t)*p++ << 8);
 
-#if (DEBUG == 1)
+#if (DEBUG_MSG == 1)
                 printf("[bidib_parser] MSG_GUEST_RESP_SUBSCRIPTION_COUNT → targetMode=0x%02X, uid=%02X %02X %02X %02X %02X, ackSequence=0x%02X, count=0x%04X\n", targetMode, uid[0], uid[1], uid[2], uid[3], uid[4], ackSequence, count);
 #else
                 printf("[bidib_parser] MSG_GUEST_RESP_SUBSCRIPTION_COUNT → ackSequence=0x%02X, count=0x%04X\n", ackSequence, count);

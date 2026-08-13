@@ -39,6 +39,7 @@ pico_sdk_init()
     tcp_server.c
     smartphone_if.c
     withrottle_if.c
+    log.c
     # dhcpserver fourni par pico-examples — copier le dossier dhcpserver/ ici
     dhcpserver/dhcpserver.c
     bidib_client_parser.c
@@ -53,7 +54,7 @@ pico_generate_pio_header(WiBiDiB
 pico_set_program_name(WiBiDiB "WiBiDiB")
 pico_set_program_version(WiBiDiB "0.1")
 
-# Sortie USB pour printf, UART désactivé
+# Sortie UART (bridge debug probe), USB désactivé
 pico_enable_stdio_uart(WiBiDiB 1)
 pico_enable_stdio_usb(WiBiDiB 0)
 

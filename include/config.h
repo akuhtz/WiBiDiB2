@@ -47,9 +47,11 @@
 #define now_ms()  ((uint32_t)(time_us_64() / 1000ULL))
 
 // ─── Debug ───────────────────────────────────────────────────────────────────
-#define LOG_INFO(tag, fmt, ...)   printf("[I] %s: " fmt "\n", tag, ##__VA_ARGS__)
-#define LOG_WARN(tag, fmt, ...)   printf("[W] %s: " fmt "\n", tag, ##__VA_ARGS__)
-#define LOG_ERROR(tag, fmt, ...)  printf("[E] %s: " fmt "\n", tag, ##__VA_ARGS__)
+// Logging non-bloquant via ring buffer (log.c) — jamais d'I/O bloquant ici
+#include "log.h"
+#define LOG_INFO(tag, fmt, ...)   log_printf("[I] %s: " fmt "\n", tag, ##__VA_ARGS__)
+#define LOG_WARN(tag, fmt, ...)   log_printf("[W] %s: " fmt "\n", tag, ##__VA_ARGS__)
+#define LOG_ERROR(tag, fmt, ...)  log_printf("[E] %s: " fmt "\n", tag, ##__VA_ARGS__)
 #define debug      1    // 1 pour activer les logs de debug (très verbeux)
 
 // ─── Distributed control ────────────────────────────────────────────────────────

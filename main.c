@@ -25,6 +25,7 @@ static const char *TAG = "main";
 int main(void)
 {
     stdio_init_all();
+    log_init();        // ring buffer de log non-bloquant
     sleep_ms(3000);  // attendre USB serial
     LOG_INFO(TAG,"=== WI_BIDIB_ED Pico 2W v0.2 ===");
     stdio_flush();
@@ -72,6 +73,7 @@ int main(void)
     //
     while (1) {
         cyw43_arch_poll();  // traite WiFi + lwIP callbacks
+        log_poll();         // draine le ring buffer vers USB sans bloquer
         run_bidib_client(); 
       //  sleep_ms(1);
     }
