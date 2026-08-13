@@ -54,4 +54,15 @@ bool flash_store_write(uint32_t addr, const uint8_t *buf, size_t len);
 // Efface tout le circuit (W25Q32 : ~40 s). À utiliser avec précaution.
 bool flash_store_erase_all(void);
 
+// ─── Stockage de chaînes (records [len][data...], 0xFF = vierge) ──────────────
+#define FLASH_USER_STRING_ADDR   0x000000   // chaîne utilisateur (namespace 0, id 1)
+#define FLASH_USER_STRING_MAX    24         // = BIDIB_STRING_MAX
+
+// Lit la chaîne à `addr`. Retourne false si le record est vierge (0xFF),
+// invalide, ou si la longueur dépasse buf_size-1.
+bool flash_store_read_string(uint32_t addr, char *buf, size_t buf_size);
+
+// Écrit la chaîne `str` (tronquée à FLASH_USER_STRING_MAX) à `addr`.
+bool flash_store_write_string(uint32_t addr, const char *str);
+
 #endif /* FLASH_STORE_H_ */

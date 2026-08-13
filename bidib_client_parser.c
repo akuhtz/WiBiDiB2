@@ -35,6 +35,7 @@
 #include "crc_8bit.h"
 #include "config.h"
 #include "features.h"
+#include "flash_store.h"
 #include "hardware/timer.h" 
 
 static const char *TAG = "bidib_client_parser";
@@ -246,7 +247,32 @@ static void bidib_send_nodetab(void) {
 */
 
 const char vendor_string[] = "WiBiDiB2";
-const char user_string[] = "Cool WiBiDiB2";
+
+// Chaîne utilisateur : chargée depuis la flash externe au boot, sinon défaut.
+static char user_string[BIDIB_STRING_MAX + 1] = "Cool WiBiDiB2";
+
+// Charge la chaîne utilisateur depuis la flash (si présente).
+// À appeler après flash_store_init().
+static void user_string_load(void) {
+    if (flash_store_read_string(FLASH_USER_STRING_ADDR, user_string,
+                                sizeof(user_string))) {
+        LOG_INFO(TAG, "user string loaded from flash: \"%s\"", user_string);
+    } else {
+        LOG_INFO(TAG, "no user string in flash, using default");
+    }
+}
+
+// Enregistre la chaîne utilisateur en flash et la met à jour en RAM.
+static void user_string_store(const char *str, uint8_t len) {
+    if (len > BIDIB_STRING_MAX) len = BIDIB_STRING_MAX;
+    memcpy(user_string, str, len);
+    user_string[len] = '\0';
+
+    if (!flash_store_write_string(FLASH_USER_STRING_ADDR, user_string))
+        LOG_ERROR(TAG, "flash write of user string failed");
+    else
+        LOG_INFO(TAG, "user string stored: \"%s\"", user_string);
+}
 
 static void bidib_send_string_vendor(void) {
     t_node_message28 message;
@@ -422,7 +448,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         return 128;
     }
 
-#if (DEBUG_MSG == 1)
+#if (DEBUG_RAW_MSG == 1)
     log_printf("[bidib_parser] raw msg (%d bytes): ", length + 1);
     for (uint8_t k = 0; k <= length; k++)
         log_printf("%02X ", bidib_rx_msg[k - 1]);
@@ -565,6 +591,23 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         case MSG_STRING_GET:
             log_printf("[bidib_parser] MSG_STRING_GET → ns: 0x%02x\n", msg_type[1]);
             user_string_get(msg_type + 1);   // msg_type[1]=ns, msg_type[2]=id
+            break;
+
+        case MSG_STRING_SET:   // 1:Nspace, 2:ID, 3:Strsize, 4...n: string
+            if ((length - 3 - addr_depth) >= 3) {
+                uint8_t ns = msg_type[1];
+                uint8_t id = msg_type[2];
+                uint8_t sz = msg_type[3];
+                uint8_t avail = (length - 3 - addr_depth) - 3;  // octets string dispo
+                if (sz > avail) sz = avail;
+                if (ns == BIDIB_STRING_NAMESPACE_NODE_INFO && id == 1) {
+                    user_string_store(&msg_type[4], sz);
+                    bidib_send_string_username();   // MSG_STRING : valeur courante
+                } else {
+                    LOG_WARN(TAG, "MSG_STRING_SET ignored (ns=0x%02x id=%u)",
+                             ns, id);
+                }
+            }
             break;
 
         // ── Logon ─────────────────────────────────────────────────────────────
@@ -826,6 +869,7 @@ void init_bidib_client(void) {
     bidib_rx_index          = 0;
     bidib_rx_msg_num        = 0;
     init_bidib_client_if();
+    user_string_load();
     printf("[bidib_parser] init done\n");
 }
 

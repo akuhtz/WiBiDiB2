@@ -15,6 +15,7 @@
 
 
 #define DEBUG_MSG                    1 // verbose message logging
+#define DEBUG_RAW_MSG                0 // verbose raw message logging
 
 // ─── Tailles buffers ──────────────────────────────────────────────────────────
 #define BIDIB_TX_BUF_SIZE           128     // DOIT être puissance de 2

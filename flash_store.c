@@ -171,3 +171,30 @@ bool flash_store_erase_all(void) {
     LOG_INFO(TAG, "chip erased");
     return true;
 }
+
+// ─── Chaînes (records [len][data...]) ────────────────────────────────────────
+bool flash_store_read_string(uint32_t addr, char *buf, size_t buf_size) {
+    uint8_t len;
+    if (addr + 1 + FLASH_USER_STRING_MAX > FLASH_SIZE_BYTES) return false;
+    if (!flash_store_read(addr, &len, 1)) return false;
+
+    if (len == 0xFF || len == 0 || len >= buf_size) return false;  // vierge/invalide
+
+    uint8_t data[FLASH_USER_STRING_MAX];
+    if (!flash_store_read(addr + 1, data, len)) return false;
+
+    memcpy(buf, data, len);
+    buf[len] = '\0';
+    return true;
+}
+
+bool flash_store_write_string(uint32_t addr, const char *str) {
+    size_t len = strlen(str);
+    if (len > FLASH_USER_STRING_MAX) len = FLASH_USER_STRING_MAX;
+    if (len == 0) return false;
+
+    uint8_t record[1 + FLASH_USER_STRING_MAX];
+    record[0] = (uint8_t)len;
+    memcpy(&record[1], str, len);
+    return flash_store_write(addr, record, 1 + len);
+}

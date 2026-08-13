@@ -54,6 +54,14 @@ int main(void)
 
     printf("Boucle principale\n");
 
+    // ── Flash externe W25Q32VFSIG (SPI1) ────────────────────────────────────
+    // Non bloquant pour BiDiB : les ISR PIO (priorité 0) tournent pendant
+    // les transferts SPI. En cas d'absence du circuit, on continue.
+    // Doit précéder init_bidib_client() (charge la chaîne utilisateur).
+    if (!flash_store_init()) {
+        LOG_WARN(TAG, "flash externe absente — on continue sans stockage");
+    }
+
     // ── BiDiB PIO (inchangé) ──────────────────────────────────────────────────
     // ISR RX/TX enregistrées dans bidib_init(), tournent en hardware
     bidib_init();
@@ -63,13 +71,6 @@ int main(void)
 
     // ── WiFi AP + TCP WiThrottle ──────────────────────────────────────────────
     smartphone_if_init();   // init table throttle[] + UID BiDiB
-
-    // ── Flash externe W25Q32VFSIG (SPI1) ────────────────────────────────────
-    // Non bloquant pour BiDiB : les ISR PIO (priorité 0) tournent pendant
-    // les transferts SPI. En cas d'absence du circuit, on continue.
-    if (!flash_store_init()) {
-        LOG_WARN(TAG, "flash externe absente — on continue sans stockage");
-    }
 
     // ── Boucle principale ─────────────────────────────────────────────────────
     //
