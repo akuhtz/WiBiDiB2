@@ -333,6 +333,17 @@ static void bidib_guest_req_subscribe(uint8_t target_mode, uint16_t subscription
 }
 
 #endif
+
+// ─── targetModeUniqueId() ─────────────────────────────────────────────────────
+// Lit les 5 octets UID de la réponse, renvoie le pointeur avancé juste après
+// l'UID. Le target_mode est lu séparément par l'appelant.
+
+static uint8_t *targetModeUniqueId(uint8_t *p, uint8_t uid[5]) {
+    for (uint8_t b = 0; b < 5; b++)
+        uid[b] = *p++;
+    return p;
+}
+
 // ─── process_bidib_message() ─────────────────────────────────────────────────
 // Parse un message BiDiB reçu de l'IF2 ou Central Station
 // Paramètre : pointeur vers le byte LENGTH du message
@@ -352,6 +363,13 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         #endif  
         return 128;
     }
+
+    #if (DEBUG == 1)
+    printf("[bidib_parser] raw msg (%d bytes): ", length + 1);
+    for (uint8_t k = 0; k <= length; k++)
+        printf("%02X ", bidib_rx_msg[k - 1]);
+    printf("\n");
+    #endif
 
     // Vérification adresse et extraction de la pile
     if (*bidib_rx_msg == 0) {
@@ -547,14 +565,22 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             {
                 uint8_t *p = msg_type + 1;
                 uint8_t targetMode = *p++;
-                *p+= 5;
-               
+                uint8_t uid[5];
+                p = targetModeUniqueId(p, uid);
+
                 uint8_t ackSequence = *p++;
                 uint8_t result = *p++;
                 uint16_t subscription = (uint16_t)*p++;
                 subscription |= ((uint16_t)*p++ << 8);
-                printf("[bidib_parser] GUEST_RESP_SUBSCRIPTION target=0x%02X, ackSequence=0x%02X, result=0x%02X sub=0x%04X\n",
-                            targetMode, ackSequence, result, subscription);
+
+#if (DEBUG == 1)
+                printf("[bidib_parser] GUEST_RESP_SUBSCRIPTION target=0x%02X, uid=%02X %02X %02X %02X %02X, ackSequence=0x%02X, result=0x%02X sub=0x%04X\n",
+                            targetMode, uid[0], uid[1], uid[2], uid[3], uid[4], ackSequence, result, subscription);
+#else
+                printf("[bidib_parser] GUEST_RESP_SUBSCRIPTION ackSequence=0x%02X, result=0x%02X sub=0x%04X\n",
+                            ackSequence, result, subscription);
+#endif
+
                 if (result == SUBSCRIPTION_ACK_OK || result == SUBSCRIPTION_ACK_CHANGED) {
                     g_bidib_guest_enabled = 1;
                     if (targetMode == BIDIB_TARGET_MODE_DCCGEN) {
@@ -574,14 +600,19 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             {
                 uint8_t *p = msg_type + 1;
                 uint8_t targetMode = *p++;
-                *p+= 5;
+                uint8_t uid[5];
+                p = targetModeUniqueId(p, uid);
 
                 uint8_t ackSequence = *p++;
                 uint8_t result = *p++;
                 uint16_t count = (uint16_t)*p++;
                 count |= ((uint16_t)*p++ << 8);
 
-                printf("[bidib_parser] MSG_GUEST_RESP_SUBSCRIPTION_COUNT → targetMode=0x%02X, ackSequence=0x%02X, count=0x%02X\n", targetMode, ackSequence, count);
+#if (DEBUG == 1)
+                printf("[bidib_parser] MSG_GUEST_RESP_SUBSCRIPTION_COUNT → targetMode=0x%02X, uid=%02X %02X %02X %02X %02X, ackSequence=0x%02X, count=0x%04X\n", targetMode, uid[0], uid[1], uid[2], uid[3], uid[4], ackSequence, count);
+#else
+                printf("[bidib_parser] MSG_GUEST_RESP_SUBSCRIPTION_COUNT → ackSequence=0x%02X, count=0x%04X\n", ackSequence, count);
+#endif
             }
             break;
 
@@ -701,6 +732,13 @@ void run_bidib_client(void) {
                     } else {
                         printf("[bidib_parser] CRC error! expected=0x%02X got=0x%02X byte=0x%02X\n",
                                bidib_rx_crc, byte, final_crc);
+
+                        uint8_t len = bidib_rx_paket[0];
+                        printf("[bidib_parser] Current packet (%d bytes): ", len + 1);
+                        for (uint8_t k = 0; k <= len; k++)
+                            printf("%02X ", bidib_rx_paket[k - 1]);
+                        printf("\n");
+
                     }
                     bidib_rx_state = BIDIB_IDLE;
                 }
