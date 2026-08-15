@@ -431,7 +431,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         // RX 0x100 0C 0B 00 00 70 01 80 00 13 BA F1 86 BC 46
             // msg_type[1] = NODE_ADDR assignée
             // msg_type[2..8] = UniqueID (7 octets)
-            // On vérifie que l'UID correspond à la nôtre
+            // On vérifie que l'UID correspond au nôtre
             if (memcmp(msg_type + 2, MyUniqueID, 7) == 0) {
                 uint8_t assigned = msg_type[1];
                 // Calcul parité (identique Atmel)
