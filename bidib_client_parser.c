@@ -560,18 +560,20 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             if (g_bidib_connect == BIDIB_CONNECTED) {
                 g_bidib_spontan_enabled = true;
                 log_printf("[bidib_parser] SYS_ENABLE → guest mode ON\n");
+
                 #if (BIDIB_DISTRIBUTED_CONTROL == 1)
-            printf("[bidib_parser] guest_subscribed = %s\n", guest_subscribed ? "true" : "false");   
-            if (!guest_subscribed) {
-                log_printf("[bidib_parser] sending SUBSCRIBE DCCGEN\n");
-            bidib_guest_req_subscribe(BIDIB_TARGET_MODE_DCCGEN, 
-                    SUBSCRIPTION_TRACK_SIGNAL);
-            log_printf("[bidib_parser] sending SUBSCRIBE BOOSTER\n");
-            bidib_guest_req_subscribe(BIDIB_TARGET_MODE_BOOSTER, 
-                                SUBSCRIPTION_BOOSTER);
-                guest_subscribed = true;
-        }
-        #endif
+                printf("[bidib_parser] guest_subscribed = %s\n", guest_subscribed ? "true" : "false");   
+                if (!guest_subscribed) {
+                    log_printf("[bidib_parser] sending SUBSCRIBE DCCGEN\n");
+                    bidib_guest_req_subscribe(BIDIB_TARGET_MODE_DCCGEN, 
+                            SUBSCRIPTION_TRACK_SIGNAL);
+                    // log_printf("[bidib_parser] sending SUBSCRIBE BOOSTER\n");
+                    // bidib_guest_req_subscribe(BIDIB_TARGET_MODE_BOOSTER, 
+                    //                     SUBSCRIPTION_BOOSTER);
+
+                    guest_subscribed = true;
+                }
+                #endif
             }
             break;
 
@@ -579,6 +581,11 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             g_bidib_spontan_enabled = false;
             bidib_feature2send = NUM_OF_FEATURES;  // fin de streaming
             featureStreaming   = 0;
+
+            #if (BIDIB_DISTRIBUTED_CONTROL == 1)
+            guest_subscribed = false;
+            #endif
+
             log_printf("[bidib_parser] SYS_DISABLE → guest mode OFF\n");
             break;
 
@@ -649,17 +656,30 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
 
         case MSG_LOGON_REJECTED:
             if (memcmp(msg_type + 1, MyUniqueID, 7) == 0) {
+
+                log_printf("[bidib_parser] MSG_LOGON_REJECTED → set the rejected state\n");
+
                 set_bidib_state(BIDIB_REJECTED, 0);
             }
             break;
 
-        case MSG_LOCAL_SYNC:
-            log_printf("[bidib_parser] MSG_LOCAL_SYNC → time=0x%04x\n", ((int) msg_type[2]) << 6 | msg_type[1]);
-            break;
-
         // ── Distributed Control — réponses de l'IF2 ou Central Station ──────────────────────────
         case MSG_GUEST_RESP_NOTIFY: // 0x52
-            log_printf("[bidib_parser] MSG_GUEST_RESP_NOTIFY → targetMode=0x%02x\n", msg_type[1]);
+            {
+                uint8_t *p = msg_type + 1;
+                uint8_t targetMode = *p++;
+                uint8_t uid[5];
+                p = targetModeUniqueId(p, uid);
+
+                uint8_t ackSequence = *p++;
+                uint8_t result = *p++;
+#if (DEBUG_MSG == 1)
+                log_printf("[bidib_parser] MSG_GUEST_RESP_NOTIFY target=0x%02X, uid=%02X %02X %02X %02X %02X, ackSequence=0x%02X, result=0x%02X\n",
+                                targetMode, uid[0], uid[1], uid[2], uid[3], uid[4], ackSequence, result);
+#else
+                log_printf("[bidib_parser] MSG_GUEST_RESP_NOTIFY → targetMode=0x%02x\n", msg_type[1]);
+#endif
+            }
             break;
 
         case MSG_GUEST_RESP_SENT:       // 0x52
@@ -724,9 +744,8 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             break;
 
         // ── Messages non gérés ────────────────────────────────────────────────
-        case MSG_SYS_CLOCK:   // 0x18
-            break;
         case MSG_LOCAL_SYNC:  // 0x74
+            log_printf("[bidib_parser] MSG_LOCAL_SYNC → time=0x%04x\n", ((int) msg_type[2]) << 6 | msg_type[1]);
             break;
 
         default:
