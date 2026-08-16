@@ -80,6 +80,12 @@ typedef enum {
 
 static bidib_rx_state_t bidib_rx_state = BIDIB_IDLE;
 
+typedef struct {
+    uint8_t dccgen_uid[5];
+    uint8_t booster_uid[5];
+} t_pico_guest_targets;
+
+static t_pico_guest_targets guest_targets = {0};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -89,7 +95,7 @@ static bidib_rx_state_t bidib_rx_state = BIDIB_IDLE;
 static uint8_t bidib_build_header(uint8_t *buf, uint8_t msg_type, uint8_t nb_data) {
   uint8_t i = 0;
     buf[i++] = 1 + 1 + 1 + nb_data;  // addr + index + type + data
-    buf[i++] = 0x00;              // addr vers le maître, toujours 0
+    buf[i++] = 0x00;              // addr vers le host, toujours 0
     buf[i++] = bidib_get_tx_num(); // index
     buf[i++] = msg_type;           // type
     return i;                      // offset pour les data
@@ -555,6 +561,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
                 g_bidib_spontan_enabled = true;
                 log_printf("[bidib_parser] SYS_ENABLE → guest mode ON\n");
                 #if (BIDIB_DISTRIBUTED_CONTROL == 1)
+            printf("[bidib_parser] guest_subscribed = %s\n", guest_subscribed ? "true" : "false");   
             if (!guest_subscribed) {
                 log_printf("[bidib_parser] sending SUBSCRIBE DCCGEN\n");
             bidib_guest_req_subscribe(BIDIB_TARGET_MODE_DCCGEN, 
@@ -616,7 +623,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         // RX 0x100 0C 0B 00 00 70 01 80 00 13 BA F1 86 BC 46
             // msg_type[1] = NODE_ADDR assignée
             // msg_type[2..8] = UniqueID (7 octets)
-            // On vérifie que l'UID correspond à la nôtre
+            // On vérifie que l'UID correspond au nôtre
             if (memcmp(msg_type + 2, MyUniqueID, 7) == 0) {
                 uint8_t assigned = msg_type[1];
                 // Calcul parité (identique Atmel)
@@ -719,6 +726,9 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         // ── Messages non gérés ────────────────────────────────────────────────
         case MSG_SYS_CLOCK:   // 0x18
             break;
+        case MSG_LOCAL_SYNC:  // 0x74
+            break;
+
         default:
             log_printf("[bidib_parser] unhandled msg type=0x%02X\n", *msg_type);
             break;
