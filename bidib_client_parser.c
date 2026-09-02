@@ -567,9 +567,9 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
                     log_printf("[bidib_parser] sending SUBSCRIBE DCCGEN\n");
                     bidib_guest_req_subscribe(BIDIB_TARGET_MODE_DCCGEN, 
                             SUBSCRIPTION_TRACK_SIGNAL);
-                    // log_printf("[bidib_parser] sending SUBSCRIBE BOOSTER\n");
-                    // bidib_guest_req_subscribe(BIDIB_TARGET_MODE_BOOSTER, 
-                    //                     SUBSCRIPTION_BOOSTER);
+                    log_printf("[bidib_parser] sending SUBSCRIBE BOOSTER\n");
+                    bidib_guest_req_subscribe(BIDIB_TARGET_MODE_BOOSTER, 
+                            SUBSCRIPTION_BOOSTER);
 
                     guest_subscribed = true;
                 }
