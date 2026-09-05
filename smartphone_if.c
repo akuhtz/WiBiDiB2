@@ -28,7 +28,7 @@ uint8_t    cli_index = 0;
 
 // ─── Helpers table throttle[] ────────────────────────────────────────────────
 
-// Remplace is_sock_in_throttleTab(sock) ESP32
+// Replaces is_sock_in_throttleTab(sock) ESP32
 uint8_t find_throttle_by_pcb(struct tcp_pcb *pcb) {
     for (uint8_t j = 0; j < MAX_THROTTLES; j++) {
         if (throttle[j].pcb == pcb) return j;

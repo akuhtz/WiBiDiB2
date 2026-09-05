@@ -6,7 +6,7 @@
  * Le bus BiDiB (PIO) et le WiFi tournent en parallèle dans la même boucle :
  *   - cyw43_arch_poll() gère les callbacks TCP/lwIP
  *   - Les ISR PIO (bidib_pio_rx_isr / tx_isr) sont déclenchées par hardware
- *     indépendamment de la boucle → pas d'interférence
+ *     indépendamment de la boucle → not d'interférence
  */
 
 #include <stdio.h>
@@ -31,8 +31,8 @@ int main(void)
     LOG_INFO(TAG,"=== WI_BIDIB_ED Pico 2W v0.2 ===");
     stdio_flush();
 
-    // // ── BiDiB PIO (inchangé) ──────────────────────────────────────────────────
-    // // ISR RX/TX enregistrées dans bidib_init(), tournent en hardware
+    // // ── BiDiB PIO (unchanged) ──────────────────────────────────────────────────
+    // // RX/TX ISRs registered in bidib_init(), run in hardware
     // bidib_init();
     // LOG_INFO(TAG,"BiDiB PIO OK");
     // init_bidib_client();
@@ -43,7 +43,7 @@ int main(void)
 
     if (!wifi_init()) {
         printf("WiFi ERREUR — on continue sans WiFi\n");
-        // On ne bloque pas : le BiDiB seul reste fonctionnel
+        // On ne bloque not : le BiDiB seul reste fonctionnel
     } else {
         if (!tcp_server_init()) {
             printf("TCP server ERREUR\n");
@@ -55,15 +55,15 @@ int main(void)
     printf("Boucle principale\n");
 
     // ── Flash externe W25Q32VFSIG (SPI1) ────────────────────────────────────
-    // Non bloquant pour BiDiB : les ISR PIO (priorité 0) tournent pendant
+    // Non-blocking for BiDiB: PIO ISRs (priority 0) run during
     // les transferts SPI. En cas d'absence du circuit, on continue.
-    // Doit précéder init_bidib_client() (charge la chaîne utilisateur).
+    // Must precede init_bidib_client() (loads the user string).
     if (!flash_store_init()) {
         LOG_WARN(TAG, "flash externe absente — on continue sans stockage");
     }
 
-    // ── BiDiB PIO (inchangé) ──────────────────────────────────────────────────
-    // ISR RX/TX enregistrées dans bidib_init(), tournent en hardware
+    // ── BiDiB PIO (unchanged) ──────────────────────────────────────────────────
+    // RX/TX ISRs registered in bidib_init(), run in hardware
     bidib_init();
     LOG_INFO(TAG,"BiDiB PIO OK");
     init_bidib_client();
@@ -74,11 +74,11 @@ int main(void)
 
     // ── Boucle principale ─────────────────────────────────────────────────────
     //
-    // cyw43_arch_poll() déclenche les callbacks TCP (recv, accept, err)
-    //   → process_rx_withrottle() appelé à l'intérieur
+    // cyw43_arch_poll() triggers TCP callbacks (recv, accept, err)
+    //   → process_rx_withrottle() called inside
     //
-    // Les ISR BiDiB PIO tournent indépendamment (hardware IRQ)
-    //   → bidib_pio_rx_isr() / bidib_pio_tx_isr() non affectés par le poll
+    // BiDiB PIO ISRs run independently (hardware IRQ)
+    //   → bidib_pio_rx_isr() / bidib_pio_tx_isr() not affected by poll
     //
     while (1) {
         cyw43_arch_poll();  // traite WiFi + lwIP callbacks

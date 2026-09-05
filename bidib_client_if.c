@@ -50,8 +50,8 @@ extern uint8_t g_bidib_connect;
 uint64_t last_poll_us = 0;
 // ─── Buffers ─────────────────────────────────────────────────────────────────
 
-// TX : buffer circulaire pour les messages à envoyer
-// Identique Atmel — accès depuis ISR TX (bidib_pio_tx_isr)
+// TX: circular buffer for messages to send
+// Identical to Atmel — accessed from TX ISR (bidib_pio_tx_isr)
 uint8_t          bidib_tx_buf[BIDIB_TX_BUF_SIZE];
 volatile uint8_t bidib_tx_buf_read  = 0;
 volatile uint8_t bidib_tx_buf_write = 0;
@@ -63,18 +63,18 @@ volatile uint8_t bidib_tx_ahead = 0;
 #endif
 volatile uint8_t bidib_tx_crc = 0;
 
-// RX : buffer circulaire pour les octets reçus (16 bits : octet + id_bit)
-// Rempli par bidib_pio_rx_isr() dans bidib.c
+// RX: circular buffer for received bytes (16 bits: byte + id_bit)
+// Filled by bidib_pio_rx_isr() dans bidib.c
 uint16_t bidib_rx_buf[BIDIB_RX_BUF_SIZE];
 uint8_t  bidib_rx_buf_read  = 0;
 uint8_t  bidib_rx_buf_write = 0;
 uint8_t  bidib_rx_fill      = 0;
 
-// Numéro de séquence des messages TX
+// TX message sequence number
 uint8_t bidib_tx0_msg_num = 0;
 
 // ─── Direction RS485 ─────────────────────────────────────────────────────────
-// Remplace SET_BIDIB_TO_RX/TX() Atmel
+// Replaces SET_BIDIB_TO_RX/TX() Atmel
 
 void set_bidib_to_receive(void) {
     gpio_put(BIDIB_PIN_DE, 0);   // DE=0 → RX  
@@ -93,8 +93,8 @@ bool bidib_rx_ready(void) {
     return (bidib_rx_buf_read != bidib_rx_buf_write);
 }
 
-// Retourne 16 bits : bits 0-7 = data, bit 8 = id_bit
-// Identique à bidib_rx_read() Atmel
+// Returns 16 bits : bits 0-7 = data, bit 8 = id_bit
+// Identical to bidib_rx_read() Atmel
 uint16_t bidib_rx_read(void) {
     uint16_t retval = bidib_rx_buf[bidib_rx_buf_read];
     bidib_rx_buf_read++;
@@ -102,16 +102,16 @@ uint16_t bidib_rx_read(void) {
     return retval;
 }
 
-// Appelé depuis bidib_pio_rx_isr() pour écrire dans le buffer RX
-// (remplace l'ISR RXC Atmel qui écrivait directement)
+// Called from bidib_pio_rx_isr() to write to the RX buffer
+// (replaces the RXC ISR Atmel qui wrote directly)
 void bidib_rx_buf_put(uint16_t word) {
     uint8_t next_write = (bidib_rx_buf_write + 1) % BIDIB_RX_BUF_SIZE;
-    if (next_write != bidib_rx_buf_read) {  // pas plein
+    if (next_write != bidib_rx_buf_read) {  // not plein
         bidib_rx_buf[bidib_rx_buf_write] = word;
         bidib_rx_buf_write = next_write;
         bidib_rx_fill++;
     }
-    // sinon : overflow silencieux (comme Atmel "no overrun check")
+    // otherwise: silent overflow (like Atmel "no overrun check")
 }
 
 // ─── TX buffer state ─────────────────────────────────────────────────────────
@@ -146,12 +146,12 @@ bool bidib_tx_fifo_healthy(void) {
 
 // ─── bidib_tx_fifo_put() ─────────────────────────────────────────────────────
 //
-// Copie un message dans le buffer TX circulaire.
-// Identique à la version Atmel — calcule le CRC et ajoute en fin de message.
+// Copies a message into the TX circular buffer.
+// Identical to the Atmel version — calculates CRC and appends to end of message.
 // Le message est : [size, node_addr, index, msg_type, data...]
-// size = nombre d'octets qui suivent (sans le byte size lui-même)
+// size = number of bytes following (without the size byte itself)
 //
-// Appelé par send_bidib_message() dans bidib_client_parser.c
+// Called by send_bidib_message() dans bidib_client_parser.c
 //
 bool bidib_tx_fifo_put(uint8_t *new_message) {
     if (g_bidib_connect != BIDIB_CONNECTED) return true;
@@ -171,14 +171,14 @@ bool bidib_tx_fifo_put(uint8_t *new_message) {
 gpio_put(BIDIB_PIN_TEST , 1);
     busy_wait_us_32(2);
 gpio_put(BIDIB_PIN_TEST , 0);     
-    // Vérifier place disponible
+    // Check available space
     if ((bidib_tx_ahead + total) > BIDIB_TX_BUF_SIZE) {
         bidib_exit_critical(s);
         LOG_INFO(TAG,"TX fifo full!");
         return false;
     }
 
-    // Copier message dans le fifo
+    // Copy message into the fifo
     for (uint8_t i = 0; i <= size; i++) {
         bidib_tx_buf[bidib_tx_buf_write] = new_message[i];
         bidib_tx_buf_write = (bidib_tx_buf_write + 1) & (BIDIB_TX_BUF_SIZE - 1);
@@ -188,8 +188,8 @@ gpio_put(BIDIB_PIN_TEST , 0);
        bidib_exit_critical(s);
     return true;
 }
-// ─── Numéro de séquence ───────────────────────────────────────────────────────
-// Identique get_tx_num() Atmel
+// ─── Sequence Number ───────────────────────────────────────────────────────
+// Identical to get_tx_num() Atmel
 
 uint8_t bidib_get_tx_num(void) {
     uint8_t retval = bidib_tx0_msg_num++;
@@ -199,15 +199,15 @@ uint8_t bidib_get_tx_num(void) {
 
 // ─── Logon message dans TX buf ───────────────────────────────────────────────
 //
-// Prépare le message MSG_LOGON directement dans bidib_tx_buf[]
-// (pas via fifo_put — le logon est spécial, envoyé avant connexion établie)
-// Identique à bidib_copy_logon_to_txbuf() Atmel
-// + bidib_prepare_logon_buf() déjà dans bidib.c — on unifie ici
+// Prepares the MSG_LOGON message directly in bidib_tx_buf[]
+// (not via fifo_put — logon is special, sent before connection is established)
+// Identical to bidib_copy_logon_to_txbuf() Atmel
+// + bidib_prepare_logon_buf() already in bidib.c — we unify here
 //
 void bidib_prepare_tx_logon(void) {
-    // Format : [size=10][addr=0][mnum=0][MSG_LOGON][UID x7]
-    // La CRC est calculée et ajoutée par l'ISR TX (comme Atmel)
-    // ou ici si on veut pré-calculer
+    // Format: [size=10][addr=0][mnum=0][MSG_LOGON][UID x7]
+    // CRC is calculated and added by l'ISR TX (like Atmel)
+    // or here if we want to pre-calculate
     uint8_t idx = 0;
     bidib_tx_buf[idx++] = BIDIB_SIZE_OF_LOGON_MSG - 1;  // size = 10
     bidib_tx_buf[idx++] = 0x00;                          // addr = 0
@@ -216,7 +216,7 @@ void bidib_prepare_tx_logon(void) {
     for (int i = 0; i < 7; i++)
         bidib_tx_buf[idx++] = MyUniqueID[i];
 
-    // CRC sur tout le message
+    // CRC on the whole message
     uint8_t crc = 0;
     for (int i = 0; i < BIDIB_SIZE_OF_LOGON_MSG; i++)
         crc = crc8_update(crc, bidib_tx_buf[i]);
@@ -249,9 +249,9 @@ void bidib_flush_tx(void) {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 //
-// Équivalent init_bidib_client_if() Atmel
-// Le PIO (UART 9 bits) est déjà initialisé dans bidib_init() (bidib.c)
-// Ici on initialise uniquement les buffers et l'état
+// Equivalent to init_bidib_client_if() Atmel
+// The PIO (9-bit UART) is already initialized in bidib_init() (bidib.c)
+// Here we initialize only the buffers and state
 //
 void init_bidib_client_if(void) {
     set_bidib_to_receive();

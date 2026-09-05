@@ -63,7 +63,7 @@ bool wifi_init(void) {
     return wifi_start_ap();
 }
 
-// ─── Mode STA : rejoint un réseau WiFi existant ───────────────────────────────
+// ─── STA mode: joins an existing WiFi network ───────────────────────────────
 static bool wifi_try_sta(void) {
     cyw43_arch_enable_sta_mode();
 
@@ -76,7 +76,7 @@ static bool wifi_try_sta(void) {
         return false;
     }
 
-    // Attendre l'attribution de l'IP (DHCP — démarré automatiquement par le SDK)
+    // Wait for IP assignment (DHCP — started automatically by the SDK)
     struct netif *sta_netif = &cyw43_state.netif[CYW43_ITF_STA];
     uint32_t start = now_ms();
     while (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) != CYW43_LINK_UP
@@ -94,7 +94,7 @@ static bool wifi_try_sta(void) {
     return true;
 }
 
-// ─── Mode AP : le Pico démarre son propre réseau ──────────────────────────────
+// ─── AP mode: Pico starts its own network ──────────────────────────────
 static bool wifi_start_ap(void) {
     cyw43_arch_enable_ap_mode(WIFI_AP_SSID, WIFI_AP_PASSWORD, CYW43_AUTH_WPA2_AES_PSK);
 
@@ -102,7 +102,7 @@ static bool wifi_start_ap(void) {
     ip4addr_aton(AP_IP_ADDR, &gw);
     ip4addr_aton("255.255.255.0", &mask);
 
-    // Configurer l'IP de l'interface AP
+    // Configure the IP of the AP interface
     struct netif *ap_netif = &cyw43_state.netif[CYW43_ITF_AP];
     netif_set_addr(ap_netif, &gw, &mask, &gw);
 
@@ -115,10 +115,10 @@ static bool wifi_start_ap(void) {
     return true;
 }
 
-// ─── Démarrage du serveur TCP ─────────────────────────────────────────────────
+// ─── TCP server startup ─────────────────────────────────────────────────
 //
-// Équivalent du bloc listen/bind/accept dans tcp_server_task() ESP32
-// Sur Pico lwIP : on crée un pcb en écoute et on enregistre le callback accept
+// Equivalent of the listen/bind/accept block in tcp_server_task() ESP32
+// On Pico lwIP: we create a pcb for listening and register the accept callback
 //
 bool tcp_server_init(void) {
     struct tcp_pcb *listen_pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
@@ -143,23 +143,23 @@ bool tcp_server_init(void) {
     tcp_accept(listen_pcb, tcp_server_accept_cb);
     LOG_INFO(TAG, "TCP server listening on port %d", WITHROTTLE_PORT);
 
-    // mDNS : annonce le service WiThrottle → découverte Engine Driver
+    // mDNS : advertise the WiThrottle service → Engine Driver discovery
     mdns_init(g_active_netif);
     return true;
 }
 
-// ─── Callback : nouvelle connexion acceptée ───────────────────────────────────
+// ─── Callback: new connection accepted ───────────────────────────────────
 //
-// Équivalent du bloc après accept() + xTaskCreate(process_socket_V2) ESP32
-// Ici pas de thread : on enregistre recv/err callbacks sur le nouveau pcb
+// Equivalent of the block after accept() + xTaskCreate(process_socket_V2) ESP32
+// No thread here : we register recv/err callbacks on the new pcb
 //
 static err_t tcp_server_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) {
     if (err != ERR_OK || newpcb == NULL) return ERR_VAL;
 
-    // Priorité TCP (recommandé pico-sdk)
+    // TCP priority (recommended by pico-sdk)
     tcp_setprio(newpcb, TCP_PRIO_MIN);
 
-    // Trouver un slot libre dans la table des throttles
+    // Find a free slot in the throttle table
     uint8_t slot = find_free_throttle_slot();
     if (slot == 255) {
         LOG_WARN(TAG, "Too many clients, refusing connection");
@@ -167,14 +167,14 @@ static err_t tcp_server_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) 
         return ERR_MEM;
     }
 
-    // Enregistrer le client
+    // Register the client
     throttle[slot].pcb   = newpcb;
     throttle[slot].state = NODE_LOGGED_ON;
     if (cli_index < MAX_THROTTLES - 1) cli_index++;
 
     LOG_INFO(TAG, "Client connected, slot %d, pcb %p", slot, newpcb);
 
-    // Enregistrer les callbacks sur ce pcb
+    // Register the callbacks on this pcb
     tcp_arg(newpcb, (void *)(uintptr_t)slot);   // arg = index dans throttle[]
     tcp_recv(newpcb, tcp_server_recv_cb);
     tcp_err(newpcb, tcp_server_err_cb);
@@ -184,18 +184,18 @@ static err_t tcp_server_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) 
 }
 
 
-// ─── Callback : données reçues ────────────────────────────────────────────────
+// ─── Callback: data received ────────────────────────────────────────────────
 //
-// Équivalent du recv() bloquant dans process_socket_V2() ESP32
+// Equivalent of the blocking recv() in process_socket_V2() ESP32
 // + xQueueSend() + parse_rx_smart_if_task() + process_rx_withrottle()
 //
-// Sur Pico : appel direct (pas de queue), tout dans le même contexte poll()
+// On Pico: direct call (no queue), all in the same poll() context
 //
 static err_t tcp_server_recv_cb(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err) {
     uint8_t slot = (uint8_t)(uintptr_t)arg;
 
     if (!p) {
-        // p == NULL → connexion fermée par le client
+        // p == NULL → connection closed by client
         LOG_INFO(TAG, "Connection closed by client, slot %d", slot);
         throttle_stop(slot);
         throttle[slot].state = NODE_INACTIVE;
@@ -209,8 +209,8 @@ static err_t tcp_server_recv_cb(void *arg, struct tcp_pcb *tpcb, struct pbuf *p,
         return err;
     }
 
-    // Copier les données du pbuf dans rx_data_t
-    // Le pbuf peut être chaîné (plusieurs segments) — pbuf_copy_partial gère ça
+    // Copy data from pbuf into rx_data_t
+    // The pbuf may be chained (multiple segments) — pbuf_copy_partial handles this
     rx_data_t rx;
     rx.pcb = tpcb;
     rx.len = (int)p->tot_len;
@@ -221,11 +221,11 @@ static err_t tcp_server_recv_cb(void *arg, struct tcp_pcb *tpcb, struct pbuf *p,
 
     LOG_INFO(TAG, "<- slot %d; Received %d bytes: %s", slot, rx.len, rx.msg);
 
-    // Acquitter la réception (obligatoire lwIP)
+    // Acknowledge reception (mandatory lwIP)
     tcp_recved(tpcb, p->tot_len);
     pbuf_free(p);
 
-    // Split sur \n — un paquet peut contenir plusieurs messages
+    // Split on \n — a packet may contain multiple messages
     // ex: "M0A*<;>qV\nM0A*<;>qR\n"
     char *line_start = rx.msg;
     char *newline;
@@ -233,7 +233,7 @@ static err_t tcp_server_recv_cb(void *arg, struct tcp_pcb *tpcb, struct pbuf *p,
         *newline = '\0';  // terminer la ligne
         int line_len = (int)(newline - line_start);
 
-        // Ignorer les lignes vides
+        // Ignore empty lines
         if (line_len > 0) {
             rx_data_t line_rx;
             line_rx.pcb = tpcb;
@@ -244,7 +244,7 @@ static err_t tcp_server_recv_cb(void *arg, struct tcp_pcb *tpcb, struct pbuf *p,
         line_start = newline + 1;
     }
 
-    // Traiter le reste sans \n final (si présent)
+    // Process the remaining data without \n final (if present)
     if (*line_start != '\0') {
         rx_data_t line_rx;
         line_rx.pcb = tpcb;
@@ -255,10 +255,10 @@ static err_t tcp_server_recv_cb(void *arg, struct tcp_pcb *tpcb, struct pbuf *p,
     return ERR_OK;
 }
 
-// ─── Callback : erreur TCP ────────────────────────────────────────────────────
+// ─── Callback: TCP error ────────────────────────────────────────────────────
 //
-// Équivalent du errno check + shutdown/close dans process_socket_V2() ESP32
-// Note : quand err_cb est appelé, le pcb est déjà invalide (ne pas appeler tcp_close)
+// Equivalent of the errno check + shutdown/close in process_socket_V2() ESP32
+// Note : when err_cb is called, the pcb is already invalid (do not call tcp_close)
 //
 static void tcp_server_err_cb(void *arg, err_t err) {
     uint8_t slot = (uint8_t)(uintptr_t)arg;
@@ -272,8 +272,8 @@ static void tcp_server_err_cb(void *arg, err_t err) {
 
 // ─── send_msg() ───────────────────────────────────────────────────────────────
 //
-// Équivalent de send_msg(sock, len, msg) ESP32
-// Utilisé par withrottle_if.c — signature identique sauf pcb au lieu de sock
+// Equivalent of send_msg(sock, len, msg) ESP32
+// Used by withrottle_if.c — identical signature except pcb instead of sock
 //
 void send_msg(struct tcp_pcb *pcb, int len, const char *msg) {
     if (!pcb || len <= 0) return;
@@ -284,5 +284,5 @@ void send_msg(struct tcp_pcb *pcb, int len, const char *msg) {
         printf("[send_msg] tcp_write error: %d len=%d\n", err, len);
         return;
     }
-    // PAS de tcp_output() ici — flush explicite après chaque bloc
+    // NO tcp_output() here — explicit flush after each block
 }

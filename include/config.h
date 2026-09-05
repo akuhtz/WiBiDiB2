@@ -8,8 +8,8 @@
 #define CONFIG_H_
 
 // ─── WiFi STA ─────────────────────────────────────────────────────────────────
-// Le Pico rejoint un réseau WiFi existant (mode par défaut).
-// Un fichier local include/network_config.h (HORS contrôle de version) peut
+// Pico joins an existing WiFi network (default mode).
+// A local file include/network_config.h (OUTSIDE version control) can
 // surcharger WIFI_SSID / WIFI_PASSWORD. Copier network_config.example.h.
 #if __has_include("network_config.h")
 #include "network_config.h"
@@ -21,11 +21,11 @@
 #ifndef WIFI_PASSWORD
 #define WIFI_PASSWORD        "mypassword"
 #endif
-// Délai (ms) pour la connexion STA avant bascule en mode AP
+// Delay (ms) for STA connection before switching to AP mode
 #define WIFI_STA_TIMEOUT_MS  20000
 
 // ─── WiFi AP ──────────────────────────────────────────────────────────────────
-// Fallback : le Pico démarre son propre réseau avec ce SSID/mot de passe
+// Fallback: Pico starts its own network with this SSID/password
 #define WIFI_AP_SSID         "myssid"
 #define WIFI_AP_PASSWORD     "mypassword"
 // Adresse IP fixe du Pico en mode AP

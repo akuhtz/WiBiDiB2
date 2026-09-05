@@ -6,7 +6,7 @@
  *
  * Les transferts SPI bloquent le CPU, mais PAS les IRQ : les ISR PIO
  * BiDiB (bidib_pio_rx_isr/tx_isr, priorité 0) continuent de tourner
- * pendant une écriture → le trafic BiDiB n'est pas interrompu.
+ * pendant une écriture → le trafic BiDiB n'est not interrompu.
  *
  * Pins (à raccorder) :
  *   GP10 = SCK  (SPI1)
@@ -22,7 +22,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-// ─── Configuration matérielle (SPI1) ─────────────────────────────────────────
+// ─── Hardware configuration (SPI1) ─────────────────────────────────────────
 #define FLASH_SPI            spi1
 #define FLASH_PIN_SCK        10
 #define FLASH_PIN_MOSI       11
@@ -46,23 +46,23 @@ uint32_t flash_store_jedec_id(void);
 // Retourne false si hors bornes.
 bool flash_store_read(uint32_t addr, uint8_t *buf, size_t len);
 
-// Écrit `len` octets à `addr`. Gère l'effacement des secteurs concernés
-// puis la programmation page par page. La donnée à l'adresse donnée est
-// remplacée (le reste du secteur est préservé en RAM).
+// Writes `len` bytes to `addr`. Handles erasing of affected sectors
+// then page-by-page programming. The data at the given address is
+// replaced (the rest of the sector is preserved in RAM).
 bool flash_store_write(uint32_t addr, const uint8_t *buf, size_t len);
 
-// Efface tout le circuit (W25Q32 : ~40 s). À utiliser avec précaution.
+// Erases the entire chip (W25Q32: ~40 s). Use with caution.
 bool flash_store_erase_all(void);
 
-// ─── Stockage de chaînes (records [len][data...], 0xFF = vierge) ──────────────
+// ─── String storage (records [len][data...], 0xFF = blank) ──────────────
 #define FLASH_USER_STRING_ADDR   0x000000   // chaîne utilisateur (namespace 0, id 1)
 #define FLASH_USER_STRING_MAX    24         // = BIDIB_STRING_MAX
 
-// Lit la chaîne à `addr`. Retourne false si le record est vierge (0xFF),
-// invalide, ou si la longueur dépasse buf_size-1.
+// Reads the string at `addr`. Returns false if the record is blank (0xFF),
+// invalid, or if the length exceeds buf_size-1.
 bool flash_store_read_string(uint32_t addr, char *buf, size_t buf_size);
 
-// Écrit la chaîne `str` (tronquée à FLASH_USER_STRING_MAX) à `addr`.
+// Writes string `str` (truncated to FLASH_USER_STRING_MAX) to `addr`.
 bool flash_store_write_string(uint32_t addr, const char *str);
 
 #endif /* FLASH_STORE_H_ */

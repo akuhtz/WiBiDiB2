@@ -21,7 +21,7 @@
 
 static const char *TAG = "mdns";
 
-// Nom d'hôte (A record) et instance du service WiThrottle
+// Hostname (A record) and WiThrottle service instance
 #define MDNS_HOSTNAME    "wibidib"
 #define MDNS_INSTANCE    "WiBiDiB"
 #define MDNS_SERVICE     "_withrottle"

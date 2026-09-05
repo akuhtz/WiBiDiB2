@@ -25,7 +25,7 @@ bool bidib_send_onepara_msg(uint8_t msg_type, uint8_t dat);
 bool send_bidib_message(uint8_t *message);
 
 // ─── Distributed Control ──────────────────────────────────────────────────────
-// Appelées depuis withrottle_if.c pour chaque commande Engine Driver
+// Called from withrottle_if.c for each Engine Driver command
 
 // Commande de traction : vitesse + direction + fonctions F0..F28
 // speed = 0..126, ou -1 pour emergency stop

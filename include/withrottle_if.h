@@ -6,11 +6,11 @@
 
 #include "datatypes.h"
 
-// Traitement d'un message WiThrottle reçu
-// slot = index dans throttle[] (passé directement depuis tcp_server_recv_cb)
+// Processing a received WiThrottle message
+// slot = index in throttle[] (passed directly from tcp_server_recv_cb)
 void process_rx_withrottle(rx_data_t *data, uint8_t slot);
 
-// Arrêt d'urgence d'un throttle (appelé sur déconnexion)
+// Emergency stop of a throttle (called on disconnect)
 void throttle_stop(uint8_t slot);
 
 #endif /* WITHROTTLE_IF_H_ */

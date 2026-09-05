@@ -58,8 +58,8 @@ void log_printf(const char *fmt, ...) {
     log_push(tmp, n);
 }
 
-// Comme snprintf() mais en plus pousse la chaîne résultante dans le ring buffer
-// (utile pour tracer les réponses TCP tout en remplissant le buffer d'envoi).
+// Like snprintf() but also pushes the resulting string into the ring buffer
+// (useful for tracing TCP responses while filling the send buffer).
 int log_snprintf(char *buf, size_t size, const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);

@@ -51,7 +51,7 @@ uint8_t my_addr_depth    = 0;
 volatile uint8_t g_bidib_guest_enabled = 0;
 static bool guest_subscribed = false;
 
-// Guest mode activé par MSG_SYS_ENABLE
+// Guest mode enabled by MSG_SYS_ENABLE
 static bool g_bidib_spontan_enabled = false;
 
 // Numéro de séquence des messages RX attendus
@@ -60,11 +60,11 @@ static uint8_t bidib_rx_msg_num = 0;
 // Numéro de séquence TX (partagé avec bidib_client_if.c via bidib_get_tx_num())
 // déjà dans bidib_client_if.c
 
-// UID unique du nœud (défini dans bidib.c / smartphone_if.c)
+// Unique node ID (defined in bidib.c / smartphone_if.c)
 extern const uint8_t MyUniqueID[7];
 
 
-// ─── Buffer de réception de paquets ──────────────────────────────────────────
+// ─── Packet receive buffer ──────────────────────────────────────────
 // Un paquet BiDiB = PLENGTH + messages + CRC
 static uint8_t  bidib_rx_paket[64];
 static uint8_t  bidib_rx_index = 0;
@@ -91,7 +91,7 @@ static t_pico_guest_targets guest_targets = {0};
 
 
 
-// Helper générique — construit l'en-tête dans buf, retourne l'offset des data
+// Generic helper — builds the header in buf, returns the data offset
 static uint8_t bidib_build_header(uint8_t *buf, uint8_t msg_type, uint8_t nb_data) {
   uint8_t i = 0;
     buf[i++] = 1 + 1 + 1 + nb_data;  // addr + index + type + data
@@ -101,8 +101,8 @@ static uint8_t bidib_build_header(uint8_t *buf, uint8_t msg_type, uint8_t nb_dat
     return i;                      // offset pour les data
 }
 // ─── send_bidib_message() ────────────────────────────────────────────────────
-// Point d'entrée unique pour envoyer un message BiDiB
-// Identique Atmel — délègue à bidib_tx_fifo_put()
+// Single entry point for sending a BiDiB message
+// Identical to Atmel — delegates to bidib_tx_fifo_put()
 
 bool send_bidib_message(uint8_t *message) {
     
@@ -117,9 +117,9 @@ bool send_bidib_message(uint8_t *message) {
     return bidib_tx_fifo_put(message);
 }
 
-// ─── Messages système de base ────────────────────────────────────────────────
+// ─── Basic system messages ────────────────────────────────────────────────
 
-    // MSG_SYS_MAGIC répond avec 0xFE 0xAF (magic word BiDiB)
+    // MSG_SYS_MAGIC responds with 0xFE 0xAF (BiDiB magic word)
 static void bidib_send_sys_magic(void) {  
     uint8_t message[10];
     uint8_t i = bidib_build_header(message, MSG_SYS_MAGIC, 2);
@@ -172,8 +172,8 @@ static void bidib_send_sys_pversion(void) {
 }
 
 // ─── Features (MSG_FEATURE_*) ──────────────────────────────────────────────────
-// Table des features supportés par le gateway (définie dans features.h).
-// Handling porté depuis ReadyTLE/features.c.
+// Gateway supported features table (defined in features.h).
+// Handling ported from ReadyTLE/features.c.
 
 static uint8_t bidib_feature2send = 0;   // curseur pour MSG_FEATURE_GETNEXT
 static uint8_t featureStreaming   = 0;   // 1 si l'hôte a demandé du streaming
@@ -254,11 +254,11 @@ static void bidib_send_nodetab(void) {
 
 const char vendor_string[] = "WiBiDiB2";
 
-// Chaîne utilisateur : chargée depuis la flash externe au boot, sinon défaut.
+// User string: loaded from external flash at boot, otherwise default.
 static char user_string[BIDIB_STRING_MAX + 1] = "Cool WiBiDiB2";
 
-// Charge la chaîne utilisateur depuis la flash (si présente).
-// À appeler après flash_store_init().
+// Loads the user string from flash (if present).
+// Must be called after flash_store_init().
 static void user_string_load(void) {
     if (flash_store_read_string(FLASH_USER_STRING_ADDR, user_string,
                                 sizeof(user_string))) {
@@ -268,7 +268,7 @@ static void user_string_load(void) {
     }
 }
 
-// Enregistre la chaîne utilisateur en flash et la met à jour en RAM.
+// Stores the user string in flash and updates it in RAM.
 static void user_string_store(const char *str, uint8_t len) {
     if (len > BIDIB_STRING_MAX) len = BIDIB_STRING_MAX;
     memcpy(user_string, str, len);
@@ -349,8 +349,8 @@ bool bidib_send_onepara_msg(uint8_t msg_type, uint8_t dat) {
 }
 
 // ─── set_bidib_state() ───────────────────────────────────────────────────────
-// Gestion de l'état de connexion BiDiB
-// Identique Atmel — sans LED, sans cortos
+// BiDiB connection state management
+// Identical to Atmel — without LED, without cortos
 
 void set_bidib_state(uint8_t neu, uint8_t assigned_addr) {
     if (neu == g_bidib_connect) return;
@@ -425,8 +425,8 @@ static void bidib_guest_req_subscribe(uint8_t target_mode, uint16_t subscription
 #endif
 
 // ─── targetModeUniqueId() ─────────────────────────────────────────────────────
-// Lit les 5 octets UID de la réponse, renvoie le pointeur avancé juste après
-// l'UID. Le target_mode est lu séparément par l'appelant.
+// Reads the 5-byte UID from the response, returns the pointer advanced just after
+// the UID. The target_mode is read separately by the caller.
 
 static uint8_t *targetModeUniqueId(uint8_t *p, uint8_t uid[5]) {
     for (uint8_t b = 0; b < 5; b++)
@@ -435,10 +435,10 @@ static uint8_t *targetModeUniqueId(uint8_t *p, uint8_t uid[5]) {
 }
 
 // ─── process_bidib_message() ─────────────────────────────────────────────────
-// Parse un message BiDiB reçu de l'IF2 ou Central Station
-// Paramètre : pointeur vers le byte LENGTH du message
-// Retour    : nombre d'octets consommés (length + 1)
-// Identique Atmel — simplifié pour WiBiDiB (pas de CLASS_OCCUPANCY, etc.)
+// Parses a BiDiB message received from IF2 or Central Station
+// Parameter: pointer to the LENGTH byte of the message
+// Return: number of bytes consumed (length + 1)
+// Identical to Atmel — simplified for WiBiDiB (no CLASS_OCCUPANCY, etc.)
 
 static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
    uint8_t  length;
@@ -461,7 +461,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
     log_printf("\n");
 #endif
 
-    // Vérification adresse et extraction de la pile
+    // Address verification and stack extraction
     if (*bidib_rx_msg == 0) {
         // broadcast
         bidib_rx_msg++;  // saute addr=0x00
@@ -473,7 +473,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         }
         bidib_rx_msg++;  // saute le terminateur 0x00
 
-        // Vérification séquence
+        // Sequence verification
         if (*bidib_rx_msg != bidib_rx_msg_num) {
 #if (DEBUG == 1)
         LOG_INFO(TAG,"sequence resync: expected %d got %d",
@@ -497,7 +497,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
 
     switch (*msg_type) {
 
-        // ── Système ──────────────────────────────────────────────────────────
+        // ── System ──────────────────────────────────────────────────────────
         case MSG_SYS_GET_MAGIC:
             /*
             gpio_put(BIDIB_PIN_TEST , 1);
@@ -628,12 +628,12 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
         case MSG_LOCAL_LOGON_ACK:         // 0x70
         // send      0x0B 0A 00 00 F0 80 00 13 BA F1 86 BC 89
         // RX 0x100 0C 0B 00 00 70 01 80 00 13 BA F1 86 BC 46
-            // msg_type[1] = NODE_ADDR assignée
+            // msg_type[1] = assigned NODE_ADDR
             // msg_type[2..8] = UniqueID (7 octets)
-            // On vérifie que l'UID correspond au nôtre
+            // We verify that the UID matches ours
             if (memcmp(msg_type + 2, MyUniqueID, 7) == 0) {
                 uint8_t assigned = msg_type[1];
-                // Calcul parité (identique Atmel)
+                // Parity calculation (identical to Atmel)
                 uint8_t temp = assigned ^ (assigned << 4);
                 temp = temp ^ (temp << 2);
                 temp = temp ^ (temp << 1);
@@ -650,7 +650,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
                 g_bidib_guest_enabled = 0;
                 guest_subscribed = false;
                 bidib_feature2send = 0;   // reset curseur features
-                featureStreaming   = 0;   // pas de streaming après logon
+                featureStreaming   = 0;   // not de streaming après logon
             }
             break;
 
@@ -663,7 +663,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             }
             break;
 
-        // ── Distributed Control — réponses de l'IF2 ou Central Station ──────────────────────────
+        // ── Distributed Control — responses from IF2 or Central Station ──────────────────────────
         case MSG_GUEST_RESP_NOTIFY: // 0x52
             {
                 uint8_t *p = msg_type + 1;
@@ -683,7 +683,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             break;
 
         case MSG_GUEST_RESP_SENT:       // 0x52
-            // Confirmation que l'IF2 ou Central Station a bien reçu notre REQ_SEND
+            // Confirmation that IF2 or Central Station received our REQ_SEND
             // msg_type[1] = RESULT (0=OK, autre=erreur)
             log_printf("[bidib_parser] GUEST_RESP_SENT result=0x%02X\n", msg_type[1]);
             break;
@@ -743,7 +743,7 @@ static uint8_t process_bidib_message(uint8_t *bidib_rx_msg) {
             }
             break;
 
-        // ── Messages non gérés ────────────────────────────────────────────────
+        // ── Unhandled messages ────────────────────────────────────────────────
         case MSG_LOCAL_SYNC:  // 0x74
             log_printf("[bidib_parser] MSG_LOCAL_SYNC → time=0x%04x\n", ((int) msg_type[2]) << 6 | msg_type[1]);
             break;
@@ -777,13 +777,13 @@ static void bidib_parser(void) {
 }
 
 // ─── run_bidib_client() ───────────────────────────────────────────────────────
-// Boucle principale BiDiB — appelée depuis main() à chaque itération
-// Équivalent de la t_cr_task Atmel — sans cortos
+// Main BiDiB loop — called from main() each iteration
+// Equivalent of the Atmel t_cr_task — without cortos
 
 void run_bidib_client(void) {
   
   // -- 1. Check connected
-  // utilisez now_ms() pour le test de timeout, et pas time_us_64() directement pour éviter overflow
+  // use now_ms() for timeout checks, not time_us_64() directly to avoid overflow
     if (g_bidib_connect == BIDIB_CONNECTED) {
         uint32_t now = now_ms();
         uint32_t last_ms = (uint32_t)(last_poll_us / 1000ULL);
@@ -797,7 +797,7 @@ void run_bidib_client(void) {
 
    
     // ── 2. Feature streaming (MSG_FEATURE_GETALL mode=1) ────────────────────
-    // L'hôte a demandé le streaming : on envoie les features un par un,
+    // Host requested streaming: we send features one by one,
     // sans attendre MSG_FEATURE_GETNEXT (identique Atmel/ReadyTLE).
     if ((featureStreaming == 1) && (bidib_feature2send < NUM_OF_FEATURES)) {
         if (bidib_tx_fifo_okay()) {
@@ -813,9 +813,9 @@ void run_bidib_client(void) {
 
         switch (bidib_rx_state) {
             case BIDIB_IDLE:
-                // Seul id_bit=1 avec byte non nul démarre un paquet
+                // Only id_bit=1 with non-null byte starts a packet
                 if (id_bit == 1 && byte == 0x00) {
-                // 0x00 avec id=1 = début de paquet pour le nœud 0
+                // 0x00 with id=1 = start of packet for node 0
                 bidib_rx_state = BIDIB_GET_LEN;
                 }
                 break;
@@ -838,12 +838,12 @@ void run_bidib_client(void) {
                 break;
 
             case BIDIB_COLLECT_MESSAGE:
-                // bidib_rx_paket[0] = PLENGTH = nombre d'octets de données (sans CRC)
-                // On attend PLENGTH octets de données (index 1..PLENGTH)
+                // bidib_rx_paket[0] = PLENGTH = number of data bytes (without CRC)
+                // We wait for PLENGTH data bytes (index 1..PLENGTH)
                 // puis 1 octet CRC (index PLENGTH+1)
-                // Total octets à recevoir après PLENGTH : PLENGTH + 1
+                // Total bytes to receive after PLENGTH: PLENGTH + 1
                 if (bidib_rx_index <= bidib_rx_paket[0]) {
-                    // Octet de données
+                    // Data byte
                     if (bidib_rx_index < 64) {
                         bidib_rx_paket[bidib_rx_index] = byte;
                         #if (DEBUG == 1)
@@ -861,9 +861,9 @@ void run_bidib_client(void) {
 // (0x100) P_LENGTH 0C  M_LENGTH 0b  00  00  msg_log 70 adr 01 UID 80  00  13  ba  f1  b6  bc crc 46                    
                 } else {
                     // bidib_rx_index == bidib_rx_paket[0] + 1 → octet CRC
-                    // Le CRC est calculé sur tous les octets précédents
+                    // CRC is calculated on all preceding bytes
                     // (crc_array[PLENGTH] puis crc8_update pour chaque octet)
-                    // En fin de paquet valide, crc8_update(crc_courant, CRC_reçu) == 0
+                    // At end of valid packet, crc8_update(current_crc, received_CRC) == 0
                     uint8_t final_crc = crc8_update(bidib_rx_crc, byte);
                     if (final_crc == 0) {
                         bidib_parser();
@@ -904,17 +904,17 @@ void init_bidib_client(void) {
 
 // ─── Distributed Control : bidib_send_cs_drive() ─────────────────────────────
 //
-// Traduit une commande WiThrottle (vitesse/direction/fonctions) en
+// Translates a WiThrottle command (speed/direction/functions) into
 // MSG_GUEST_REQ_SEND { TARGET_MODE_DCCGEN, MSG_CS_DRIVE, ... }
-// envoyé à l'IF2 ou Central Station qui le transmet à la CS.
+// sent to IF2 or Central Station which transmits it to the CS.
 //
-// Paramètres :
+// Parameters :
 //   dcc_addr  : adresse DCC de la loco (14 bits)
 //   speed     : 0..126 (128 steps) ou -1 emergency stop
-//   dir       : 1=avant, 0=arrière
+//   dir       : 1=forward, 0=reverse
 //   f         : tableau LocoState[29] (F0..F28)
 //
-// Format MSG_CS_DRIVE (d'après bidib_messages.h) :
+// Format MSG_CS_DRIVE (according to bidib_messages.h) :
 //   [addrl][addrh][format][active][speed][f4_f0][f12_f5][f20_f13][f28_f21]
 //
 // Format MSG_GUEST_REQ_SEND :
@@ -960,7 +960,7 @@ gpio_put(BIDIB_PIN_TEST , 0);
                          sizeof(t_bidib_cs_drive));
 #else
 
-    // Envoi direct MSG_CS_DRIVE sans distributed control
+    // Direct MSG_CS_DRIVE send without distributed control
     uint8_t message[16];
     uint8_t i = bidib_build_header(message, MSG_CS_DRIVE, sizeof(t_bidib_cs_drive));
     memcpy(&message[i], &drive, sizeof(t_bidib_cs_drive));
@@ -975,7 +975,7 @@ gpio_put(BIDIB_PIN_TEST , 0);
 
 
 // ─── bidib_send_boost_state() ────────────────────────────────────────────────
-// Traduit PPA0/PPA1 (Engine Driver) en MSG_GUEST_REQ_SEND { BOOSTER, BOOST_ON/OFF }
+// Translates PPA0/PPA1 (Engine Driver) into MSG_GUEST_REQ_SEND { BOOSTER, BOOST_ON/OFF }
 
 void bidib_send_boost_state(uint8_t on) {
     if (g_bidib_connect != BIDIB_CONNECTED) return;

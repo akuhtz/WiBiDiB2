@@ -12,8 +12,8 @@
 
 struct netif;
 
-// Enregistre le gateway comme service WiThrottle sur l'interface donnée.
-// À appeler après que le netif a une adresse IP.
+// Registers the gateway as a WiThrottle service on the given interface.
+// Must be called after the netif has an IP address.
 bool mdns_init(struct netif *netif);
 
 #endif /* MDNS_H_ */

@@ -7,10 +7,10 @@
 #include <stdbool.h>
 #include "lwip/tcp.h"
 
-// Initialisation WiFi : STA (réseau existant) avec fallback AP
+// WiFi initialization: STA (existing network) with AP fallback
 bool wifi_init(void);
 
-// Démarrage du serveur TCP WiThrottle
+// Start the WiThrottle TCP server
 bool tcp_server_init(void);
 
 // Envoi d'un message TCP vers un client

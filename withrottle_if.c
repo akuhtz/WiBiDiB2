@@ -31,8 +31,8 @@
 
 static const char *TAG = "withrottle_if";
 
-// ─── Structure loco ───────────────────────────────────────────────────────────
-// 1 loco par slot (Engine Driver uniquement)
+// ─── Loco structure ───────────────────────────────────────────────────────────
+// 1 loco per slot (Engine Driver only)
 typedef struct {
     char    Loco_actionKey[16]; // ex: "S14" ou "L4550"
     int     LocoState[29];      // état F0..F28
@@ -49,7 +49,7 @@ static const int heartbeatTimeout = HEARTBEAT_TIMEOUT_S;
 static uint8_t   heartbeatEnable[MAX_THROTTLES];
 static uint32_t  heartbeat[MAX_THROTTLES];
 
-// Variables de parsing
+// Parsing variables
 static char    LocoAdress_g[14];
 static char    actionKey_g[14];
 static int     Throttle_g = 0;
@@ -95,7 +95,7 @@ static void locoAdd(const char *th, const char *ak, uint8_t slot) {
     msg[length_msg++]='\n'; msg[length_msg++]='\n';
     send_msg(pcb, length_msg, msg);
 
-    // RAZ état locos en mémoire
+    // Reset loco state in memory
     for (int fk = 0; fk < 29; fk++) Loco[slot].LocoState[fk] = 0;
     Loco[slot].newSpeed = 0;
     Loco[slot].oldSpeed = 0;
@@ -170,7 +170,7 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
     LOG_INFO(TAG,"locoAction th=%s ak=%s", th, ak );
     log_snprintf(locoAddress, sizeof(locoAddress), "%d", Loco[slot].dccAdress);
 
-    // '*' : remplacer par l'actionKey réelle sauvegardée
+    // '*' : replace with the actual saved actionKey
     if (ak[0] == '*') {
         memcpy(ak, Loco[slot].Loco_actionKey,
                strlen(Loco[slot].Loco_actionKey) + 1);
@@ -178,12 +178,12 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
 
     // ── F : fonction ──────────────────────────────────────────────────────────
     if (ak[0] == 'F') {
-        // Format : F<0|1><num>  ex: F10 = F0 on, F110 = F10 on
+        // Format: F<0|1><num>  ex: F10 = F0 on, F110 = F10 on
         int fstate = ak[1] - '0';               // 0 ou 1
         int fk     = (int)strtol(ak + 2, NULL, 10);
         Loco[slot].LocoState[fk] = fstate;
 
-        // Renvoyer l'état confirmé au smartphone : M0A<ak><;>F<state><num>
+        // Return confirmed state to smartphone: M0A<ak><;>F<state><num>
         memset(msg, 0, sizeof(msg));
         msg[0]='M'; length_msg=1;
         memcpy(msg+length_msg, th, strlen(th)); length_msg += strlen(th);
@@ -201,7 +201,7 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
         send_msg(pcb, length_msg, msg);
         tcp_output(pcb);
 
-        // Calculer active selon fk
+        // Calculate active according to fk
             uint8_t active = BIDIB_CS_DRIVE_SPEED_BIT;  // toujours speed
             if (fk <= 4)  active |= BIDIB_CS_DRIVE_F0F4_BIT;
             else if (fk <= 8)  active |= BIDIB_CS_DRIVE_F5F8_BIT;
@@ -217,13 +217,13 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
         
     }
 
-    // ── qV / qR : demande de l'état courant ──────────────────────────────────
+    // ── qV / qR: request current state ──────────────────────────────────
     else if (ak[0] == 'q') {
         memset(msg, 0, sizeof(msg));
         msg[0]='M'; length_msg=1;
         memcpy(msg+length_msg, th, strlen(th)); length_msg += strlen(th);
         msg[length_msg++]='A';
-        // Répondre avec l'actionKey réelle (ex: S14), pas 'q'
+        // Respond with the actual actionKey (ex: S14), not 'q'
         memcpy(msg+length_msg, Loco[slot].Loco_actionKey,
                strlen(Loco[slot].Loco_actionKey));
         length_msg += strlen(Loco[slot].Loco_actionKey);
@@ -258,7 +258,7 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
         bidib_send_cs_drive(Loco[slot].dccAdress, spd,Loco[slot].dir,
             Loco[slot].LocoState,   // LocoState[29];      // état F0..F28
             active );
-        // Renvoyer V confirmée au smartphone
+        // Return confirmed V to the smartphone
     }
 
     // ── R : direction ─────────────────────────────────────────────────────────
@@ -270,7 +270,7 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
              bidib_send_cs_drive(Loco[slot].dccAdress, Loco[slot].newSpeed,Loco[slot].dir,
             Loco[slot].LocoState,   // LocoState[29];      // état F0..F28
             active );
-        // Renvoyer V0 au smartphone
+        // Return V0 to the smartphone
         memset(msg, 0, sizeof(msg));
         msg[0]='M'; length_msg=1;
         memcpy(msg+length_msg, th, strlen(th)); length_msg += strlen(th);
@@ -321,7 +321,7 @@ static void checkHeartbeat(uint8_t slot) {
         Loco[slot].newSpeed = 0;
         heartbeat[slot]     = 0;
 
-        // Envoyer V0 emergency
+        // Send V0 emergency stop
         memset(msg, 0, sizeof(msg));
         msg[0]='M'; msg[1]='0'; msg[2]='A'; length_msg=3;
         memcpy(msg+length_msg, Loco[slot].Loco_actionKey,
@@ -361,7 +361,7 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
         tcp_output(pcb);
     }
 
-    // ── 'H' device ID → envoyer accueil complet ───────────────────────────────
+    // ── 'H' device ID → send full welcome ───────────────────────────────
     else if (data->msg[0] == 'H') {
         LOG_INFO(TAG, "H (device ID) received → sending VN/HT/RL/PPA");
         tcp_write(pcb, "VN2.0\n", 6,  TCP_WRITE_FLAG_COPY);
@@ -379,12 +379,12 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
             send_msg(pcb, (int)strlen(stri), stri);
             tcp_output(pcb);
             // Traduire PPA en BiDiB boost
-        if (data->msg[3] == '1') {
-            bidib_send_boost_state(1);   // MSG_BOOST_ON
-        } else if (data->msg[3] == '0') {
-            bidib_send_boost_state(0);   // MSG_BOOST_OFF
-        }
-        // PPA2 = état inconnu → on ne fait rien
+            if (data->msg[3] == '1') {
+                bidib_send_boost_state(1);   // MSG_BOOST_ON
+            } else if (data->msg[3] == '0') {
+                bidib_send_boost_state(0);   // MSG_BOOST_OFF
+            }
+            // PPA2 = unknown state → do nothing
         }
     }
 
@@ -412,7 +412,7 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
 
         uint8_t action = (uint8_t)data->msg[2];  // '+', '-', 'A'
 
-        // actionKey : après '<;>'
+        // actionKey: after '<;>'
         memset(actionKey_g, 0, sizeof(actionKey_g));
         for (int k = (delimiter + 2); k < data->len; k++)
             actionKey_g[k - (delimiter + 2)] = data->msg[k];
@@ -452,7 +452,7 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
         throttle_stop(slot);
     }
 /*
-    // ── Vérification changement de vitesse ───────────────────────────────────
+    // ── Check for speed change ───────────────────────────────────
     if (Loco[slot].newSpeed != Loco[slot].oldSpeed) {
         Loco[slot].oldSpeed = Loco[slot].newSpeed;
         uint8_t active = 1;
