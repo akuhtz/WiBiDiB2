@@ -182,8 +182,8 @@ static void locoRelease(const char *th, const char *ak, uint8_t slot) {
 
     msg[length_msg++]='<'; msg[length_msg++]=';'; msg[length_msg++]='>';
 
-    memcpy(msg+length_msg, Loco[slot].Loco_actionKey, strlen(Loco[slot].Loco_actionKey)); 
-    length_msg += strlen(Loco[slot].Loco_actionKey);
+    // memcpy(msg+length_msg, Loco[slot].Loco_actionKey, strlen(Loco[slot].Loco_actionKey)); 
+    // length_msg += strlen(Loco[slot].Loco_actionKey);
 
     msg[length_msg++]='\n'; msg[length_msg++]='\n';
     send_msg(pcb, length_msg, msg);
