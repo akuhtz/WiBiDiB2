@@ -72,17 +72,30 @@ static void locoAdd(const char *th, const char *ak, uint8_t slot) {
 
     memset(msg, 0, sizeof(msg));
     memcpy(Loco[slot].Loco_actionKey, ak, strlen(ak) + 1);
-
+    
     // M0+<ak><;>\n\n
-    msg[0]='M'; msg[1]='0'; msg[2]='+'; length_msg=3;
+    msg[0]='M';
+    length_msg++; 
+    msg[length_msg++]=throttle[slot].throttleId;
+
+    msg[2]='+'; 
+    length_msg++;
+
     memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
     msg[length_msg++]='<'; msg[length_msg++]=';'; msg[length_msg++]='>';
     msg[length_msg++]='\n'; msg[length_msg++]='\n';
     send_msg(pcb, length_msg, msg);
 
     // M0L<ak><;>]\[Feux]\[]\[]\[]...\[\n\n
+    length_msg = 0;
     memset(msg, 0, sizeof(msg));
-    msg[0]='M'; msg[1]='0'; msg[2]='L'; length_msg=3;
+    msg[0]='M'; 
+    length_msg++;
+    msg[length_msg++]=throttle[slot].throttleId;
+
+    msg[2]='L'; 
+    length_msg++;
+
     memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
     msg[length_msg++]='<'; msg[length_msg++]=';'; msg[length_msg++]='>';
     msg[length_msg++]=']'; msg[length_msg++]='\\'; msg[length_msg++]='[';
@@ -102,9 +115,12 @@ static void locoAdd(const char *th, const char *ak, uint8_t slot) {
     Loco[slot].dir      = 1;
 
     // M0A<ak><;>V0\n\n
+    length_msg = 0;
     memset(msg, 0, sizeof(msg));
-    msg[0]='M'; length_msg=1;
-    memcpy(msg+length_msg, th, strlen(th)); length_msg += strlen(th);
+    msg[0]='M'; 
+    length_msg++;
+    msg[length_msg++]=throttle[slot].throttleId;
+    
     msg[length_msg++]='A';
     memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
     msg[length_msg++]='<'; msg[length_msg++]=';'; msg[length_msg++]='>';
@@ -113,9 +129,12 @@ static void locoAdd(const char *th, const char *ak, uint8_t slot) {
     send_msg(pcb, length_msg, msg);
 
     // M0A<ak><;>R1\n\n
+    length_msg = 0;
     memset(msg, 0, sizeof(msg));
-    msg[0]='M'; length_msg=1;
-    memcpy(msg+length_msg, th, strlen(th)); length_msg += strlen(th);
+    msg[0]='M'; 
+    length_msg++;
+    msg[length_msg++]=throttle[slot].throttleId;
+
     msg[length_msg++]='A';
     memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
     msg[length_msg++]='<'; msg[length_msg++]=';'; msg[length_msg++]='>';
@@ -124,9 +143,12 @@ static void locoAdd(const char *th, const char *ak, uint8_t slot) {
     send_msg(pcb, length_msg, msg);
 
     // M0A<ak><;>s1\n\n
+    length_msg = 0;
     memset(msg, 0, sizeof(msg));
-    msg[0]='M'; length_msg=1;
-    memcpy(msg+length_msg, th, strlen(th)); length_msg += strlen(th);
+    msg[0]='M'; 
+    length_msg++;
+    msg[length_msg++]=throttle[slot].throttleId;
+
     msg[length_msg++]='A';
     memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
     msg[length_msg++]='<'; msg[length_msg++]=';'; msg[length_msg++]='>';
@@ -149,11 +171,20 @@ static void locoRelease(const char *th, const char *ak, uint8_t slot) {
 
     // M0-<ak><;>\n\n
     memset(msg, 0, sizeof(msg));
-    msg[0]='M'; length_msg=1;
-    memcpy(msg+length_msg, th, strlen(th)); length_msg += strlen(th);
+    msg[0]='M'; 
+    length_msg=1;
+    msg[length_msg++]=throttle[slot].throttleId;
+
     msg[length_msg++]='-';
-    memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
+
+    memcpy(msg+length_msg, Loco[slot].Loco_actionKey, strlen(Loco[slot].Loco_actionKey)); 
+    length_msg += strlen(Loco[slot].Loco_actionKey);
+
     msg[length_msg++]='<'; msg[length_msg++]=';'; msg[length_msg++]='>';
+
+    memcpy(msg+length_msg, Loco[slot].Loco_actionKey, strlen(Loco[slot].Loco_actionKey)); 
+    length_msg += strlen(Loco[slot].Loco_actionKey);
+
     msg[length_msg++]='\n'; msg[length_msg++]='\n';
     send_msg(pcb, length_msg, msg);
     tcp_output(pcb);
@@ -335,12 +366,24 @@ static void checkHeartbeat(uint8_t slot) {
     }
 }
 
+void send_welcome_message(struct tcp_pcb *pcb) {
+
+    // send initial sequence to client
+    tcp_write(pcb, "VN2.0\n", 6,  TCP_WRITE_FLAG_COPY);
+    tcp_write(pcb, "HTWiBiDiB\n", 10, TCP_WRITE_FLAG_COPY);
+    tcp_write(pcb, "HtWiBiDiB v1.0\n", 15, TCP_WRITE_FLAG_COPY);
+    tcp_write(pcb, "RL0\n",   4,  TCP_WRITE_FLAG_COPY);
+    tcp_write(pcb, "PPA2\n",  5,  TCP_WRITE_FLAG_COPY);
+    tcp_output(pcb);
+
+}
+
 // ─── process_rx_withrottle() ─────────────────────────────────────────────────
 void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
     char actionData[30] = {};
     int  delimiter      = 0;
 
-    LOG_INFO(TAG, "-> slot %d message: %s", slot, data->msg);
+    LOG_INFO(TAG, "rcv: <- slot %d message: %s", slot, data->msg);
 
     throttle[slot].state = NODE_LOGGED_ON;
     struct tcp_pcb *pcb  = data->pcb;
@@ -363,12 +406,8 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
 
     // ── 'H' device ID → send full welcome ───────────────────────────────
     else if (data->msg[0] == 'H') {
-        LOG_INFO(TAG, "H (device ID) received → sending VN/HT/RL/PPA");
-        tcp_write(pcb, "VN2.0\n", 6,  TCP_WRITE_FLAG_COPY);
-        tcp_write(pcb, "HTWiBiDiB\n", 10, TCP_WRITE_FLAG_COPY);
-        tcp_write(pcb, "RL0\n",   4,  TCP_WRITE_FLAG_COPY);
-        tcp_write(pcb, "PPA2\n",  5,  TCP_WRITE_FLAG_COPY);
-        tcp_output(pcb);
+        LOG_INFO(TAG, "H (device ID) received -> sending VN/HT/RL/PPA");
+        send_welcome_message(pcb);
     }
 
     // ── 'P' power ────────────────────────────────────────────────────────────
@@ -395,7 +434,12 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
         char th[3] = {};
         th[0] = data->msg[1];  // '0' pour Engine Driver
 
-        // Trouver ';' dans "M0+S14<;>S14"
+        // 'T', 'S', 'G' are translated to '0', '1'. '2'
+        throttle[slot].throttleId = th[0];
+
+        LOG_INFO(TAG,"Keep throttleId for slot %d, throttleId: %s ", slot, throttle[slot].throttleId);
+
+        // Find ';' in "M0+S14<;>S14"
         delimiter = 0;
         for (int j = 0; j < data->len; j++) {
             if (data->msg[j] == ';') { delimiter = j; break; }
@@ -436,6 +480,8 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
 
         // ── '-' : release loco ────────────────────────────────────────────────
         else if (action == '-') {
+            int k = (int)strtol(LocoAdress_g, NULL, 10);
+            LOG_INFO(TAG," loco-  ak=%s dcc=%d slot=%d", actionKey_g, k, slot );
             locoRelease(th, actionKey_g, slot);
         }
 

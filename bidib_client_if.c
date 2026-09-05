@@ -106,7 +106,7 @@ uint16_t bidib_rx_read(void) {
 // (replaces the RXC ISR Atmel qui wrote directly)
 void bidib_rx_buf_put(uint16_t word) {
     uint8_t next_write = (bidib_rx_buf_write + 1) % BIDIB_RX_BUF_SIZE;
-    if (next_write != bidib_rx_buf_read) {  // not plein
+    if (next_write != bidib_rx_buf_read) {  // not full
         bidib_rx_buf[bidib_rx_buf_write] = word;
         bidib_rx_buf_write = next_write;
         bidib_rx_fill++;

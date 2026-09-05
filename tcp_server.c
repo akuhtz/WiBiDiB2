@@ -76,6 +76,8 @@ static bool wifi_try_sta(void) {
         return false;
     }
 
+    LOG_INFO(TAG, "Connecting to WiFi SSID passed: %s ...", WIFI_SSID);
+
     // Wait for IP assignment (DHCP — started automatically by the SDK)
     struct netif *sta_netif = &cyw43_state.netif[CYW43_ITF_STA];
     uint32_t start = now_ms();
@@ -170,6 +172,8 @@ static err_t tcp_server_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) 
     // Register the client
     throttle[slot].pcb   = newpcb;
     throttle[slot].state = NODE_LOGGED_ON;
+    throttle[slot].welcome_sent = false;
+    throttle[slot].throttleId = 0;
     if (cli_index < MAX_THROTTLES - 1) cli_index++;
 
     LOG_INFO(TAG, "Client connected, slot %d, pcb %p", slot, newpcb);
@@ -178,7 +182,6 @@ static err_t tcp_server_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) 
     tcp_arg(newpcb, (void *)(uintptr_t)slot);   // arg = index dans throttle[]
     tcp_recv(newpcb, tcp_server_recv_cb);
     tcp_err(newpcb, tcp_server_err_cb);
-
 
     return ERR_OK;
 }
@@ -219,11 +222,19 @@ static err_t tcp_server_recv_cb(void *arg, struct tcp_pcb *tpcb, struct pbuf *p,
     pbuf_copy_partial(p, rx.msg, rx.len, 0);
     rx.msg[rx.len] = '\0';   // null-terminate comme sur ESP32
 
-    LOG_INFO(TAG, "<- slot %d; Received %d bytes: %s", slot, rx.len, rx.msg);
+    LOG_INFO(TAG, "rcv: <- slot %d; Received %d bytes: %s", slot, rx.len, rx.msg);
 
     // Acknowledge reception (mandatory lwIP)
     tcp_recved(tpcb, p->tot_len);
     pbuf_free(p);
+
+    // Send welcome on first data from client (safe here, unlike accept_cb)
+    if (!throttle[slot].welcome_sent) {
+        throttle[slot].welcome_sent = true;
+
+        LOG_INFO(TAG, "Send welcome message to new client");
+        send_welcome_message(tpcb);
+    }
 
     // Split on \n — a packet may contain multiple messages
     // ex: "M0A*<;>qV\nM0A*<;>qR\n"
@@ -277,7 +288,7 @@ static void tcp_server_err_cb(void *arg, err_t err) {
 //
 void send_msg(struct tcp_pcb *pcb, int len, const char *msg) {
     if (!pcb || len <= 0) return;
-    LOG_INFO(TAG, "-> msg len %d bytes: %s",  len, msg);
+    LOG_INFO(TAG, "snd: -> msg len %d bytes: %s",  len, msg);
 
     err_t err = tcp_write(pcb, msg, (u16_t)len, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK) {

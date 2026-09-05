@@ -6,6 +6,9 @@
 
 #include "datatypes.h"
 
+// Send welcome sequence (VN/HT/Ht/RL/PPA) to a newly connected client
+void send_welcome_message(struct tcp_pcb *pcb);
+
 // Processing a received WiThrottle message
 // slot = index in throttle[] (passed directly from tcp_server_recv_cb)
 void process_rx_withrottle(rx_data_t *data, uint8_t slot);

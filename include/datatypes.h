@@ -5,6 +5,7 @@
 #define DATATYPES_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "config.h"
 #include "lwip/tcp.h"
 
@@ -18,6 +19,8 @@ typedef struct {
     t_node_state    state;
     struct tcp_pcb *pcb;       // NULL = slot libre
     uint8_t         node_adr;
+    bool            welcome_sent;
+    char            throttleId;
 } throttle_t;
 
 typedef struct {
