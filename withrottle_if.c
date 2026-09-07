@@ -437,7 +437,7 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
         // 'T', 'S', 'G' are translated to '0', '1'. '2'
         throttle[slot].throttleId = th[0];
 
-        LOG_INFO(TAG,"Keep throttleId for slot %d, throttleId: %s ", slot, throttle[slot].throttleId);
+        LOG_INFO(TAG,"Keep throttleId for slot %d, throttleId: %c ", slot, throttle[slot].throttleId);
 
         // Find ';' in "M0+S14<;>S14"
         delimiter = 0;
