@@ -264,8 +264,25 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
     if (ak[0] == 'F') {
         // Format: F<0|1><num>  ex: F10 = F0 on, F110 = F10 on
         int fstate = ak[1] - '0';               // 0 ou 1
-        int fk     = (int)strtol(ak + 2, NULL, 10);
-        Loco[slot].LocoState[fk] = fstate;
+        int fn     = (int)strtol(ak + 2, NULL, 10);
+
+        // check if the roster is configured
+        const roster_entry_t *entry = findRosterEntry(Loco[slot].dccAdress);
+        if (entry != NULL && entry->functions[fn].label[0] != '\0') {
+            if (fstate == 0 && entry->functions[fn].lockable) {
+                LOG_INFO(TAG, "Skip fstate = 0 because function is lockable: %d", fn);
+                return;
+            }
+            else {
+                // toggle the state
+                Loco[slot].LocoState[fn] = Loco[slot].LocoState[fn] == 0 ? 1 : 0;
+                fstate = Loco[slot].LocoState[fn];
+                LOG_INFO(TAG, "Toggled current state because function is lockable: %d, state: %d", fn, fstate);
+            }
+        }
+        else {
+            Loco[slot].LocoState[fn] = fstate;
+        }
 
         // Return confirmed state to smartphone: M0A<ak><;>F<state><num>
         memset(msg, 0, sizeof(msg));
@@ -279,25 +296,26 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
         msg[length_msg++]='F';
         itoa(fstate, tmp, 10);
         memcpy(msg+length_msg, tmp, strlen(tmp)); length_msg += strlen(tmp);
-        itoa(fk, tmp, 10);
+        itoa(fn, tmp, 10);
         memcpy(msg+length_msg, tmp, strlen(tmp)); length_msg += strlen(tmp);
         msg[length_msg++]='\n'; msg[length_msg++]='\n';
+
         send_msg(pcb, length_msg, msg);
         tcp_output(pcb);
 
-        // Calculate active according to fk
-            uint8_t active = BIDIB_CS_DRIVE_SPEED_BIT;  // toujours speed
-            if (fk <= 4)  active |= BIDIB_CS_DRIVE_F0F4_BIT;
-            else if (fk <= 8)  active |= BIDIB_CS_DRIVE_F5F8_BIT;
-            else if (fk <= 12) active |= BIDIB_CS_DRIVE_F9F12_BIT;
-            else if (fk <= 20) active |= BIDIB_CS_DRIVE_F13F20_BIT;
-            else               active |= BIDIB_CS_DRIVE_F21F28_BIT;
+        // Calculate active according to fn
+        uint8_t active = BIDIB_CS_DRIVE_SPEED_BIT;  // toujours speed
+        if (fn <= 4)  active |= BIDIB_CS_DRIVE_F0F4_BIT;
+        else if (fn <= 8)  active |= BIDIB_CS_DRIVE_F5F8_BIT;
+        else if (fn <= 12) active |= BIDIB_CS_DRIVE_F9F12_BIT;
+        else if (fn <= 20) active |= BIDIB_CS_DRIVE_F13F20_BIT;
+        else               active |= BIDIB_CS_DRIVE_F21F28_BIT;
 
         LOG_INFO(TAG,"dccAdress %d  LocoState %02x   Active %02x ",
             Loco[slot].dccAdress, fstate, active);
 
-            bidib_send_cs_drive(Loco[slot].dccAdress, Loco[slot].newSpeed,
-                    Loco[slot].dir, Loco[slot].LocoState, active);
+        bidib_send_cs_drive(Loco[slot].dccAdress, Loco[slot].newSpeed,
+                Loco[slot].dir, Loco[slot].LocoState, active);
         
     }
 

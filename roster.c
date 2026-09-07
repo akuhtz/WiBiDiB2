@@ -52,9 +52,9 @@ void roster_init(void) {
     set_func(0, 0,  true,  true,  "Headlight");
     set_func(0, 1,  false, true,  "Bell");
     set_func(0, 2,  false, true,  "Horn");
-    set_func(0, 3,  false, true,  "Compressor");
-    set_func(0, 4,  false, true,  "Cab Light");
-    set_func(0, 5,  false, true,  "Ditch Lights");
+    set_func(0, 3,  true, true,  "Compressor");
+    set_func(0, 4,  true, true,  "Cab Light");
+    set_func(0, 5,  true, true,  "Ditch Lights");
 
     // ── Loco 1: LokSound 5 steam ─────────────────────────────────────────
     add_entry("BR 01 1066-9", "DB", "01 1066-9", "ROCO", "BR 01",
@@ -62,21 +62,21 @@ void roster_init(void) {
     set_func(1, 0,  true,  true,  "Headlight");
     set_func(1, 1,  false, true,  "Bell");
     set_func(1, 2,  false, true,  "Whistle");
-    set_func(1, 3,  false, true,  "Steam Blowoff");
-    set_func(1, 4,  false, true,  "Safety Valve");
-    set_func(1, 5,  false, true,  "Oil Cup");
-    set_func(1, 6,  false, true,  "Generator");
-    set_func(1, 7,  false, true,  "Cab Light");
+    set_func(1, 3,  true, true,  "Steam Blowoff");
+    set_func(1, 4,  true, true,  "Safety Valve");
+    set_func(1, 5,  true, true,  "Oil Cup");
+    set_func(1, 6,  true, true,  "Generator");
+    set_func(1, 7,  true, true,  "Cab Light");
 
     // ── Loco 2: NCE decoder, US diesel ────────────────────────────────────
     add_entry("UP 4014", "Union Pacific", "4014", "Athearn", "DD40AX Big Boy",
               "NCE DCC Gold", "NCE", 4014, true, 100, 6);
     set_func(2, 0,  true,  true,  "Headlight");
-    set_func(2, 1,  false, true,  "Bell");
+    set_func(2, 1,  true, true,  "Bell");
     set_func(2, 2,  false, true,  "Horn");
-    set_func(2, 3,  false, true,  "Ditch Lights");
-    set_func(2, 4,  false, true,  "Cab Light");
-    set_func(2, 5,  false, true,  "Dynamic Brakes");
+    set_func(2, 3,  true, true,  "Ditch Lights");
+    set_func(2, 4,  true, true,  "Cab Light");
+    set_func(2, 5,  true, true,  "Dynamic Brakes");
 }
 
 const roster_entry_t* roster_get(uint8_t index) {
