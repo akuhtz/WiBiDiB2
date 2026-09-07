@@ -46,6 +46,8 @@ pico_sdk_init()
     bidib_client_if.c
     mdns.c
     flash_store.c
+    roster.c
+    http_server.c
 )
 
 # Générer le header C depuis le fichier PIO

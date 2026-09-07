@@ -27,6 +27,7 @@
 #include "smartphone_if.h"
 #include "tcp_server.h"
 #include "bidib_client_parser.h"
+#include "roster.h"
 
 
 static const char *TAG = "withrottle_if";
@@ -35,6 +36,7 @@ static const char *TAG = "withrottle_if";
 // 1 loco per slot (Engine Driver only)
 typedef struct {
     char    Loco_actionKey[16]; // ex: "S14" ou "L4550"
+    char    Loco_name[16];      // ex: "BR 185 203-1"
     int     LocoState[29];      // état F0..F28
     int     dccAdress;
     int     newSpeed;
@@ -63,15 +65,43 @@ void throttle_stop(uint8_t slot) {
     Loco[slot].newSpeed   = 0;
 }
 
+const roster_entry_t * findRosterEntry(int locoAddr) {
+    roster_entry_t *e = NULL;
+    uint8_t loco_index = 0;
+
+    LOG_INFO(TAG, "Fiund roster entry for locoAddr: %d", locoAddr);
+
+    while (loco_index < roster.count) {
+        const roster_entry_t *entry = roster_get(loco_index);
+        loco_index++; 
+        if (!entry) { 
+            continue; 
+        }
+
+        // TODO check if short or long addr
+        if (entry->dccAddress == locoAddr) {
+            LOG_INFO(TAG, "Current roster entry: %s", entry->id);
+            return entry;
+        }
+    }
+
+    LOG_INFO(TAG, "No roster entry found for locoAddr: %d", locoAddr);
+    return NULL;
+}
+
 // ─── locoAdd() ───────────────────────────────────────────────────────────────
 // Engine Driver uniquement : M0+ / M0L / V0 / R1 / s1
-static void locoAdd(const char *th, const char *ak, uint8_t slot) {
+static void locoAdd(const char *th, const char *ak, const char *locoAddressWithType, int locoAddr, uint8_t slot) {
     char    msg[128];
     uint8_t length_msg = 0;
     struct tcp_pcb *pcb = throttle[slot].pcb;
 
+    const roster_entry_t *e = findRosterEntry(locoAddr);
+
     memset(msg, 0, sizeof(msg));
-    memcpy(Loco[slot].Loco_actionKey, ak, strlen(ak) + 1);
+
+    memcpy(Loco[slot].Loco_name, ak, strlen(ak) + 1);
+    memcpy(Loco[slot].Loco_actionKey, locoAddressWithType, strlen(locoAddressWithType) + 1);
     
     // M0+<ak><;>\n\n
     msg[0]='M';
@@ -81,7 +111,10 @@ static void locoAdd(const char *th, const char *ak, uint8_t slot) {
     msg[2]='+'; 
     length_msg++;
 
-    memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
+    // memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
+    memcpy(msg+length_msg, locoAddressWithType, strlen(locoAddressWithType)); 
+    length_msg += strlen(locoAddressWithType);
+    
     msg[length_msg++]='<'; msg[length_msg++]=';'; msg[length_msg++]='>';
     msg[length_msg++]='\n'; msg[length_msg++]='\n';
     send_msg(pcb, length_msg, msg);
@@ -96,15 +129,29 @@ static void locoAdd(const char *th, const char *ak, uint8_t slot) {
     msg[2]='L'; 
     length_msg++;
 
-    memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
+    // memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
+    memcpy(msg+length_msg, locoAddressWithType, strlen(locoAddressWithType)); 
+    length_msg += strlen(locoAddressWithType);
     msg[length_msg++]='<'; msg[length_msg++]=';'; msg[length_msg++]='>';
-    msg[length_msg++]=']'; msg[length_msg++]='\\'; msg[length_msg++]='[';
-    msg[length_msg++]='F'; msg[length_msg++]='e'; msg[length_msg++]='u';
-    msg[length_msg++]='x'; msg[length_msg++]=']';
-    for (uint8_t c = 0; c < 27; c++) {
-        msg[length_msg++]='\\'; msg[length_msg++]='['; msg[length_msg++]=']';
+    msg[length_msg++]=']'; msg[length_msg++]='\\'; 
+
+    for (uint8_t fn = 0; fn <= e->maxFnNum && fn <= ROSTER_FUNC_MAX; fn++) {
+
+        msg[length_msg++]='[';
+        if (e->functions[fn].label[0] != '\0') {
+            int labelLen = strlen(e->functions[fn].label);
+            memcpy(msg+length_msg, e->functions[fn].label, labelLen);
+            length_msg += labelLen;
+        }
+        msg[length_msg++]=']';
+
+        if (fn <= e->maxFnNum) {
+            msg[length_msg++]='\\';    
+        }
     }
-    msg[length_msg++]='\\'; msg[length_msg++]='[';
+
+    msg[length_msg++]='[';
+
     msg[length_msg++]='\n'; msg[length_msg++]='\n';
     send_msg(pcb, length_msg, msg);
 
@@ -122,7 +169,9 @@ static void locoAdd(const char *th, const char *ak, uint8_t slot) {
     msg[length_msg++]=throttle[slot].throttleId;
     
     msg[length_msg++]='A';
-    memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
+    // memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
+    memcpy(msg+length_msg, locoAddressWithType, strlen(locoAddressWithType)); 
+    length_msg += strlen(locoAddressWithType);
     msg[length_msg++]='<'; msg[length_msg++]=';'; msg[length_msg++]='>';
     msg[length_msg++]='V'; msg[length_msg++]='0';
     msg[length_msg++]='\n'; msg[length_msg++]='\n';
@@ -136,7 +185,9 @@ static void locoAdd(const char *th, const char *ak, uint8_t slot) {
     msg[length_msg++]=throttle[slot].throttleId;
 
     msg[length_msg++]='A';
-    memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
+    // memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
+    memcpy(msg+length_msg, locoAddressWithType, strlen(locoAddressWithType)); 
+    length_msg += strlen(locoAddressWithType);
     msg[length_msg++]='<'; msg[length_msg++]=';'; msg[length_msg++]='>';
     msg[length_msg++]='R'; msg[length_msg++]='1';
     msg[length_msg++]='\n'; msg[length_msg++]='\n';
@@ -150,7 +201,9 @@ static void locoAdd(const char *th, const char *ak, uint8_t slot) {
     msg[length_msg++]=throttle[slot].throttleId;
 
     msg[length_msg++]='A';
-    memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
+    // memcpy(msg+length_msg, ak, strlen(ak)); length_msg += strlen(ak);
+    memcpy(msg+length_msg, locoAddressWithType, strlen(locoAddressWithType)); 
+    length_msg += strlen(locoAddressWithType);
     msg[length_msg++]='<'; msg[length_msg++]=';'; msg[length_msg++]='>';
     msg[length_msg++]='s'; msg[length_msg++]='1';
     msg[length_msg++]='\n'; msg[length_msg++]='\n';
@@ -367,12 +420,54 @@ static void checkHeartbeat(uint8_t slot) {
 }
 
 void send_welcome_message(struct tcp_pcb *pcb) {
+    char buf[128];
+
+    uint8_t rosterCount = roster.count;
+    // const roster_entry_t *e = roster_get(0);
+    uint8_t loco_index = 0;
+
+    LOG_INFO(TAG, "Send welcome message to new client. Roster count: %d", rosterCount);
 
     // send initial sequence to client
     tcp_write(pcb, "VN2.0\n", 6,  TCP_WRITE_FLAG_COPY);
     tcp_write(pcb, "HTWiBiDiB\n", 10, TCP_WRITE_FLAG_COPY);
     tcp_write(pcb, "HtWiBiDiB v1.0\n", 15, TCP_WRITE_FLAG_COPY);
-    tcp_write(pcb, "RL0\n",   4,  TCP_WRITE_FLAG_COPY);
+
+    // The roster list is dynamically configurable
+
+    log_snprintf(buf, sizeof(buf),
+            "RL");
+    tcp_write(pcb, buf, (u16_t)strlen(buf), TCP_WRITE_FLAG_COPY);
+
+    while (loco_index < rosterCount) {
+        const roster_entry_t *entry = roster_get(loco_index);
+        loco_index++; 
+
+        if (!entry) { 
+            continue; 
+        }
+
+        LOG_INFO(TAG, "Current roster.id: %s", entry->id);
+
+        // prepare data of current roster entry
+        log_snprintf(buf, sizeof(buf),
+                "%d]\\[%s}|{%d}|{%s",
+            rosterCount, entry->id, entry->dccAddress, entry->longAddress ? "L" : "S");
+
+        tcp_write(pcb, buf, (u16_t)strlen(buf), TCP_WRITE_FLAG_COPY);
+
+        if (loco_index < roster.count) {
+            log_snprintf(buf, sizeof(buf),
+                    "]\\[");
+            tcp_write(pcb, buf, (u16_t)strlen(buf), TCP_WRITE_FLAG_COPY);
+        }
+    }
+    log_snprintf(buf, sizeof(buf),
+            "\n");
+    tcp_write(pcb, buf, (u16_t)strlen(buf), TCP_WRITE_FLAG_COPY);
+
+    // tcp_write(pcb, "RLRL1]\[BR 185 203-1}|{3}|{S\n",   4,  TCP_WRITE_FLAG_COPY);
+    tcp_write(pcb, "PW" HTTP_ROSTER_PORT_STR "\n", 7, TCP_WRITE_FLAG_COPY);
     tcp_write(pcb, "PPA2\n",  5,  TCP_WRITE_FLAG_COPY);
     tcp_output(pcb);
 
@@ -442,13 +537,16 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
         // Find ';' in "M0+S14<;>S14"
         delimiter = 0;
         for (int j = 0; j < data->len; j++) {
-            if (data->msg[j] == ';') { delimiter = j; break; }
+            if (data->msg[j] == ';') { 
+                delimiter = j; 
+                break;
+            }
         }
 
         // LocoAdress : msg[4..delimiter-2]
         memset(LocoAdress_g, 0, sizeof(LocoAdress_g));
-        for (int k = 4; k < (delimiter - 1); k++)
-            LocoAdress_g[k - 4] = data->msg[k];
+        for (int k = 3; k < (delimiter - 1); k++)
+            LocoAdress_g[k - 3] = data->msg[k];
 
         // Slot ED : index direct (1 loco par slot)
         Throttle_g       = slot;
@@ -458,30 +556,32 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
 
         // actionKey: after '<;>'
         memset(actionKey_g, 0, sizeof(actionKey_g));
-        for (int k = (delimiter + 2); k < data->len; k++)
+        for (int k = (delimiter + 2); k < data->len; k++) {
             actionKey_g[k - (delimiter + 2)] = data->msg[k];
+        }
 
         // Nettoyer \n / \r final
         int aklen = (int)strlen(actionKey_g);
         while (aklen > 0 && (actionKey_g[aklen-1] == '\n' ||
-                              actionKey_g[aklen-1] == '\r'))
+                              actionKey_g[aklen-1] == '\r')) {
             actionKey_g[--aklen] = '\0';
+        }
 
-        // ── '+' : ajout loco ──────────────────────────────────────────────────
+        // ── '+' : add loco ──────────────────────────────────────────────────
         if (action == '+') {
-            int k = (int)strtol(LocoAdress_g, NULL, 10);
-            Loco[slot].dccAdress = k;
+            int locoAddr = (int)strtol(&LocoAdress_g[1], NULL, 10);
+            Loco[slot].dccAdress = locoAddr;
            // log_printf("[withrottle_if] locoAdd th=%s ak=%s dcc=%d slot=%d\n",
-           //       th, actionKey_g, k, slot);
-            LOG_INFO(TAG," loco+  ak=%s dcc=%d slot=%d", actionKey_g, k, slot );
+           //       th, actionKey_g, locoAddr, slot);
+            LOG_INFO(TAG," loco+  ak=%s dcc=%d slot=%d", actionKey_g, locoAddr, slot );
             
-                   locoAdd(th, actionKey_g, slot);
+                   locoAdd(th, actionKey_g, LocoAdress_g, locoAddr, slot);
         }
 
         // ── '-' : release loco ────────────────────────────────────────────────
         else if (action == '-') {
-            int k = (int)strtol(LocoAdress_g, NULL, 10);
-            LOG_INFO(TAG," loco-  ak=%s dcc=%d slot=%d", actionKey_g, k, slot );
+            int locoAddr = (int)strtol(&LocoAdress_g[1], NULL, 10);
+            LOG_INFO(TAG," loco-  ak=%s dcc=%d slot=%d", actionKey_g, locoAddr, slot );
             locoRelease(th, actionKey_g, slot);
         }
 

@@ -35,6 +35,10 @@
 #define WITHROTTLE_PORT  5550
 #define MAX_CLIENTS      4        // Engine Driver supporte jusqu'à 4 throttles simultanés
 
+// ─── HTTP serveur roster ─────────────────────────────────────────────────────
+#define HTTP_ROSTER_PORT       8080
+#define HTTP_ROSTER_PORT_STR  "8080"
+
 // ─── Throttles / locos ───────────────────────────────────────────────────────
 #define MAX_THROTTLES    4        // nombre de connexions TCP simultanées
 

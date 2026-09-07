@@ -19,6 +19,8 @@
 #include "smartphone_if.h"
 #include "bidib_client_parser.h"
 #include "flash_store.h"
+#include "http_server.h"
+#include "roster.h"
 #include "config.h"
 
 static const char *TAG = "main";
@@ -50,6 +52,14 @@ int main(void)
         } else {
             LOG_INFO(TAG,"WiFi + TCP OK — port:5550");
         }
+    }
+
+    // ── Roster + HTTP server ─────────────────────────────────────────────
+    roster_init();
+    LOG_INFO(TAG,"Roster: %d entries", roster.count);
+
+    if (!http_server_init()) {
+        LOG_WARN(TAG, "HTTP server init failed");
     }
 
     printf("Boucle principale\n");
