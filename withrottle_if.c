@@ -547,7 +547,12 @@ void process_rx_withrottle(rx_data_t *data, uint8_t slot) {
         char th[3] = {};
         th[0] = data->msg[1];  // '0' pour Engine Driver
 
-        // 'T', 'S', 'G' are translated to '0', '1'. '2'
+        if (th[0] - '0' > 5) {
+            LOG_WARN(TAG, "Due to a bug in Engine Driver that causes a crash we must not respond to throttleId: %c", th[0]);
+            return;
+        }
+
+        // iPhone WiThrottle light app uses old 'T', 'S', 'G' instead of '0', '1', '2'
         throttle[slot].throttleId = th[0];
 
         LOG_INFO(TAG,"Keep throttleId for slot %d, throttleId: %c ", slot, throttle[slot].throttleId);
