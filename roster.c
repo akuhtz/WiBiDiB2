@@ -48,7 +48,7 @@ void roster_init(void) {
 
     // ── Loco 0: ESU LokSound 5 diesel ────────────────────────────────────
     add_entry("BR 185 203-1", "DB", "185 203-1", "TRIX", "TRAXX F140 AC",
-              "ESU LokSound 5", "ESU LokSound 5", 3, false, 100, 6);
+              "ESU LokSound 5", "ESU LokSound 5", 6, false, 100, 6);
     set_func(0, 0,  true,  true,  "Headlight");
     set_func(0, 1,  false, true,  "Bell");
     set_func(0, 2,  false, true,  "Horn");
