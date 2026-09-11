@@ -90,6 +90,7 @@ target_include_directories(WiBiDiB PRIVATE
 target_compile_definitions(WiBiDiB PRIVATE
     FREERTOS_CONFIG_FILE_DIRECTORY="${CMAKE_CURRENT_LIST_DIR}/include"
     FREERTOS_KERNEL_INCLUDE_DIR="${FREERTOS_KERNEL_PATH}/include"
+    CYW43_TASK_PRIORITY=3
 )
 
 pico_add_extra_outputs(WiBiDiB)

@@ -105,7 +105,7 @@ int main(void)
     smartphone_if_init();
 
     // ── Create FreeRTOS tasks ──────────────────────────────────────────
-    xTaskCreate(bidib_parser_task, "bidib_parser", 512, NULL, 3, &bidib_parser_task_handle);
+    xTaskCreate(bidib_parser_task, "bidib_parser", 512, NULL, 4, &bidib_parser_task_handle);
     xTaskCreate(log_output_task,   "log_output",   256, NULL, 1, &log_task_handle);
 
     LOG_INFO(TAG, "Starting FreeRTOS scheduler");
