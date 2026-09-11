@@ -108,11 +108,11 @@ static void __not_in_flash_func(bidib_pio_tx_isr)(void)
             gpio_put(BIDIB_PIN_TEST, 0);
             irq_set_enabled(PIO0_IRQ_1, false);
             tx_mode_logon = false;
-            uint32_t s = bidib_enter_critical();
+            uint32_t saved = spin_lock_blocking(tx_spinlock);
             bidib_tx_buf_read  = BIDIB_SIZE_OF_LOGON_MSG + 1;  // 12
             bidib_tx_ahead     = 0;
             bidib_tx_remaining = 0;
-            bidib_exit_critical(s);
+            spin_unlock(tx_spinlock, saved);
         }
     } else {
         if (tx_nak_mode) {
@@ -140,12 +140,14 @@ static void __not_in_flash_func(bidib_pio_tx_isr)(void)
 
             // Enchaîner ou terminer
             if (bidib_tx_fill > 0) {
+                uint32_t saved = spin_lock_blocking(tx_spinlock);
                 uint8_t size        = bidib_tx_buf[bidib_tx_buf_read];
                 tx_parser_index     = (bidib_tx_buf_read + 1) & (BIDIB_TX_BUF_SIZE - 1);
                 tx_parser_remaining = size;
                 tx_parser_crc       = 0;
                 bidib_tx_buf_read   = (bidib_tx_buf_read + size + 1) & (BIDIB_TX_BUF_SIZE - 1);
                 bidib_tx_fill      -= (size + 1);
+                spin_unlock(tx_spinlock, saved);
             } else {
                 gpio_put(BIDIB_PIN_DE, 0);
                 irq_set_enabled(PIO0_IRQ_1, false);
@@ -172,7 +174,7 @@ static void __not_in_flash_func(bidib_start_tx)(void)
 
 void bidib_start_parser_tx(void)
 {
-    uint32_t s = bidib_enter_critical();
+    uint32_t saved = spin_lock_blocking(tx_spinlock);
 
     // Prendre le prochain message dans le fifo
     uint8_t size = bidib_tx_buf[bidib_tx_buf_read]; // size = nb octets sans size
@@ -183,7 +185,7 @@ void bidib_start_parser_tx(void)
                           & (BIDIB_TX_BUF_SIZE - 1);
     bidib_tx_fill      -= tx_parser_remaining;
 
-    bidib_exit_critical(s);
+    spin_unlock(tx_spinlock, saved);
 
     gpio_put(BIDIB_PIN_DE, 1); 
     // Kickstart : premier octet manuel
@@ -254,12 +256,14 @@ static void __not_in_flash_func(bidib_pio_rx_isr)(void)
                 gpio_put(BIDIB_PIN_DE, 1);
                 last_poll_us = time_us_64();
                 if (bidib_tx_ahead > 0 && !tx_mode_logon) {
+                    uint32_t saved = spin_lock_blocking(tx_spinlock);
                     uint8_t plength     = bidib_tx_ahead;
                     tx_parser_index     = bidib_tx_buf_read;
                     tx_parser_remaining = plength;
                     tx_parser_crc       = crc8_update(0, plength);
                     bidib_tx_buf_read   = (bidib_tx_buf_read + plength) & (BIDIB_TX_BUF_SIZE - 1);
                     bidib_tx_ahead      = 0;
+                    spin_unlock(tx_spinlock, saved);
                 #if (DEBUG == 1)
                    printf("emit: parser_index=%d remaining=%d\n", tx_parser_index, tx_parser_remaining);
                  #endif  

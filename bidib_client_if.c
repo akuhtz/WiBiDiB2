@@ -35,8 +35,10 @@
 #include "pico/stdlib.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "stream_buffer.h"
 #include "hardware/pio.h"
 #include "hardware/gpio.h"
+#include "hardware/sync.h"
 
 #include "bidib.h"              // BIDIB_PIN_DE, MyUniqueID, bidib_state_t
 #include "bidib_messages.h"
@@ -64,12 +66,14 @@ volatile uint8_t bidib_tx_ahead = 0;
 #endif
 volatile uint8_t bidib_tx_crc = 0;
 
-// RX: circular buffer for received bytes (16 bits: byte + id_bit)
-// Filled by bidib_pio_rx_isr() dans bidib.c
-uint16_t bidib_rx_buf[BIDIB_RX_BUF_SIZE];
-uint8_t  bidib_rx_buf_read  = 0;
-uint8_t  bidib_rx_buf_write = 0;
-uint8_t  bidib_rx_fill      = 0;
+// RX: FreeRTOS stream buffer for received words (uint16_t packed as 2 bytes)
+// Written by bidib_pio_rx_isr(), read by BiDiB parser task
+#define BIDIB_RX_STREAM_SIZE  256   // bytes (128 x uint16_t)
+#define BIDIB_RX_TRIGGER      2     // wake on 2 bytes (1 x uint16_t)
+static StreamBufferHandle_t bidib_rx_stream;
+
+// TX hardware spinlock for bidib_tx_buf (shared between tasks and PIO TX ISR)
+spin_lock_t *tx_spinlock;
 
 // TX message sequence number
 uint8_t bidib_tx0_msg_num = 0;
@@ -88,60 +92,51 @@ void set_bidib_to_transmit(void) {
     gpio_put(BIDIB_PIN_DE, 1);   // DE=1 → TX  
 }
 
-// ─── RX buffer ───────────────────────────────────────────────────────────────
+// ─── RX buffer (FreeRTOS stream buffer) ────────────────────────────────────
 
 bool bidib_rx_ready(void) {
-    return (bidib_rx_buf_read != bidib_rx_buf_write);
+    return xStreamBufferBytesAvailable(bidib_rx_stream) >= 2;
 }
 
-// Returns 16 bits : bits 0-7 = data, bit 8 = id_bit
-// Identical to bidib_rx_read() Atmel
+// Returns 16 bits: bits 0-7 = data, bit 8 = id_bit
 uint16_t bidib_rx_read(void) {
-    uint16_t retval = bidib_rx_buf[bidib_rx_buf_read];
-    bidib_rx_buf_read++;
-    if (bidib_rx_buf_read == BIDIB_RX_BUF_SIZE) bidib_rx_buf_read = 0;
-    return retval;
+    uint16_t word;
+    xStreamBufferReceive(bidib_rx_stream, &word, 2, 0);
+    return word;
 }
 
-// Called from bidib_pio_rx_isr() to write to the RX buffer
-// (replaces the RXC ISR Atmel qui wrote directly)
+// Called from bidib_pio_rx_isr() — ISR-safe stream buffer write
 void bidib_rx_buf_put(uint16_t word) {
-    uint8_t next_write = (bidib_rx_buf_write + 1) % BIDIB_RX_BUF_SIZE;
-    if (next_write != bidib_rx_buf_read) {  // not full
-        bidib_rx_buf[bidib_rx_buf_write] = word;
-        bidib_rx_buf_write = next_write;
-        bidib_rx_fill++;
-    }
-    // otherwise: silent overflow (like Atmel "no overrun check")
+    xStreamBufferSendFromISR(bidib_rx_stream, &word, 2, NULL);
 }
 
 // ─── TX buffer state ─────────────────────────────────────────────────────────
 
 bool bidib_tx_fifo_empty(void) {
-    uint32_t s = bidib_enter_critical();
+    uint32_t saved = spin_lock_blocking(tx_spinlock);
     uint8_t filled = bidib_tx_fill + bidib_tx_remaining;
-    bidib_exit_critical(s);
+    spin_unlock(tx_spinlock, saved);
     return (filled < 16);
 }
 
 bool bidib_tx_fifo_ready(void) {
-    uint32_t s = bidib_enter_critical();
+    uint32_t saved = spin_lock_blocking(tx_spinlock);
     uint8_t filled = bidib_tx_fill + bidib_tx_remaining;
-    bidib_exit_critical(s);
+    spin_unlock(tx_spinlock, saved);
     return (filled <= (BIDIB_TX_BUF_SIZE - BIDIB_TX_BUF_REST_READY));
 }
 
 bool bidib_tx_fifo_okay(void) {
-    uint32_t s = bidib_enter_critical();
+    uint32_t saved = spin_lock_blocking(tx_spinlock);
     uint8_t filled = bidib_tx_fill + bidib_tx_remaining;
-    bidib_exit_critical(s);
+    spin_unlock(tx_spinlock, saved);
     return (filled <= (BIDIB_TX_BUF_SIZE - BIDIB_TX_BUF_REST_OKAY));
 }
 
 bool bidib_tx_fifo_healthy(void) {
-    uint32_t s = bidib_enter_critical();
+    uint32_t saved = spin_lock_blocking(tx_spinlock);
     uint8_t filled = bidib_tx_fill + bidib_tx_remaining;
-    bidib_exit_critical(s);
+    spin_unlock(tx_spinlock, saved);
     return (filled <= (BIDIB_TX_BUF_SIZE - BIDIB_TX_BUF_REST_HEALTHY));
 }
 
@@ -168,13 +163,13 @@ bool bidib_tx_fifo_put(uint8_t *new_message) {
     LOG_INFO(TAG,"[tx_put#%d] read=%d write=%d ahead=%d size=%d",
         call_count, bidib_tx_buf_read, bidib_tx_buf_write, bidib_tx_ahead, size);   
 #endif
-    uint32_t s = bidib_enter_critical();
+    uint32_t saved = spin_lock_blocking(tx_spinlock);
 gpio_put(BIDIB_PIN_TEST , 1);
     busy_wait_us_32(2);
 gpio_put(BIDIB_PIN_TEST , 0);     
     // Check available space
     if ((bidib_tx_ahead + total) > BIDIB_TX_BUF_SIZE) {
-        bidib_exit_critical(s);
+        spin_unlock(tx_spinlock, saved);
         LOG_INFO(TAG,"TX fifo full!");
         return false;
     }
@@ -184,9 +179,9 @@ gpio_put(BIDIB_PIN_TEST , 0);
         bidib_tx_buf[bidib_tx_buf_write] = new_message[i];
         bidib_tx_buf_write = (bidib_tx_buf_write + 1) & (BIDIB_TX_BUF_SIZE - 1);
     }
-     bidib_tx_ahead += total;  // une seule fois
+     bidib_tx_ahead += total;
     
-       bidib_exit_critical(s);
+       spin_unlock(tx_spinlock, saved);
     return true;
 }
 // ─── Sequence Number ───────────────────────────────────────────────────────
@@ -230,21 +225,17 @@ void bidib_prepare_tx_logon(void) {
 // ─── Flush buffers ────────────────────────────────────────────────────────────
 
 void bidib_flush_rx(void) {
-    uint32_t s = bidib_enter_critical();
-    bidib_rx_buf_read  = 0;
-    bidib_rx_buf_write = 0;
-    bidib_rx_fill      = 0;
-    bidib_exit_critical(s);
+    xStreamBufferReset(bidib_rx_stream);
 }
 
 void bidib_flush_tx(void) {
-    uint32_t s = bidib_enter_critical();
+    uint32_t saved = spin_lock_blocking(tx_spinlock);
     bidib_tx_buf_read  = 0;
     bidib_tx_buf_write = BIDIB_SIZE_OF_LOGON_MSG + 1;  // réservé pour logon
     bidib_tx_remaining = 0;
     bidib_tx_fill      = 0;
     bidib_tx_ahead     = 0;
-    bidib_exit_critical(s);
+    spin_unlock(tx_spinlock, saved);
     bidib_prepare_tx_logon();
 }
 
@@ -255,12 +246,18 @@ void bidib_flush_tx(void) {
 // Here we initialize only the buffers and state
 //
 void init_bidib_client_if(void) {
+    // Create RX stream buffer (ISR-safe)
+    bidib_rx_stream = xStreamBufferCreate(BIDIB_RX_STREAM_SIZE, BIDIB_RX_TRIGGER);
+
+    // Create TX spinlock (for multi-core safety)
+    tx_spinlock = spin_lock_init(next_striped_spin_lock_num());
+
     set_bidib_to_receive();
     bidib_flush_rx();
     bidib_flush_tx();
     my_bidib_node_addr = 0xFF;
     bidib_tx0_msg_num  = 1;
-    LOG_INFO(TAG,"init done");
+    LOG_INFO(TAG,"init done (stream buffer + spinlock)");
 }
 
 void stop_bidib_client_if(void) {

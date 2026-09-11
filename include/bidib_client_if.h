@@ -12,7 +12,7 @@
 #include <stdbool.h>
 #include "bidib.h"          // bidib_state_t, BIDIB_PIN_DE, MyUniqueID
 #include "bidib_messages.h"
-
+#include "hardware/sync.h"
 
 #define DEBUG_MSG                    1 // verbose message logging
 #define DEBUG_RAW_MSG                0 // verbose raw message logging
@@ -83,10 +83,8 @@ extern volatile uint8_t  bidib_tx_remaining;
 extern volatile uint8_t           bidib_tx_ahead;
 #endif
 
-extern uint16_t bidib_rx_buf[BIDIB_RX_BUF_SIZE];
-extern uint8_t  bidib_rx_buf_read;
-extern uint8_t  bidib_rx_buf_write;
-extern uint8_t  bidib_rx_fill;
+// TX spinlock for dual-core safety (task ↔ PIO TX ISR)
+extern spin_lock_t *tx_spinlock;
 
 // ─── API publique ─────────────────────────────────────────────────────────────
 void bidib_start_parser_tx(void);
