@@ -51,6 +51,7 @@ pico_cyw43_arch_lwip_poll       →  pico_cyw43_arch_lwip_sys_freertos
 # Added compile definitions
 FREERTOS_CONFIG_FILE_DIRECTORY="${CMAKE_CURRENT_LIST_DIR}/include"
 FREERTOS_KERNEL_INCLUDE_DIR="${FREERTOS_KERNEL_PATH}/include"
+CYW43_TASK_PRIORITY=3            # WiFi below BiDiB parser (prio 4)
 ```
 
 ### 2. FreeRTOS Configuration (`include/FreeRTOSConfig.h`) — NEW
@@ -200,9 +201,9 @@ while (1) {
 
 **After:**
 ```c
-// WiFi/LWIP — handled by pico-sdk CYW43 async context (prio 4)
+// WiFi/LWIP — handled by pico-sdk CYW43 async context (prio 3)
 // BiDiB parser task
-xTaskCreate(bidib_parser_task, "bidib_parser", 512, NULL, 3,
+xTaskCreate(bidib_parser_task, "bidib_parser", 512, NULL, 4,
             &bidib_parser_task_handle);
 // Log output task
 xTaskCreate(log_output_task, "log_output", 256, NULL, 1,
@@ -211,14 +212,18 @@ xTaskCreate(log_output_task, "log_output", 256, NULL, 1,
 vTaskStartScheduler();  // never returns
 ```
 
-Task priorities:
+Task priorities (BiDiB highest — real-time bus protocol):
 | Task | Priority | Stack | Function |
 |------|----------|-------|----------|
-| WiFi/LWIP (pico-sdk) | 4 | managed by SDK | CYW43 async context |
-| BiDiB parser | 3 | 2KB | `run_bidib_client()` loop |
-| Log output | 1 | 1KB | `log_poll()` UART drain |
+| BiDiB parser | 4 | 2KB | `run_bidib_client()` loop |
+| WiFi/LWIP (pico-sdk) | 3 | managed by SDK | CYW43 async context |
 | Timer | 2 | 1KB | FreeRTOS internal |
+| Log output | 1 | 1KB | `log_poll()` UART drain |
 | Idle | 0 | 256 words | FreeRTOS internal |
+
+WiFi priority overridden via `CYW43_TASK_PRIORITY=3` in CMakeLists.txt
+(default is 4). BiDiB parser runs at priority 4 to ensure timely token
+and poll handling — the bus protocol cannot tolerate delays.
 
 Added hooks:
 - `vApplicationStackOverflowHook()` — prints task name, halts
@@ -240,11 +245,11 @@ in its own async context managed by the pico-sdk FreeRTOS integration.
 ┌─────────────────────────────────────────────────┐
 │                 FreeRTOS Scheduler               │
 ├──────────────┬──────────────┬───────────────────┤
-│ WiFi/LWIP    │ BiDiB Parser │ Log Output        │
+│ BiDiB Parser │ WiFi/LWIP    │ Log Output        │
 │ prio 4       │ prio 3       │ prio 1            │
-│ CYW43 async  │ run_bidib_   │ log_poll()        │
-│ context      │ client()     │ → UART TX         │
-│ (pico-sdk)   │ → TX/RX msgs │                   │
+│ run_bidib_   │ CYW43 async  │ log_poll()        │
+│ client()     │ context      │ → UART TX         │
+│ → TX/RX msgs │ (pico-sdk)   │                   │
 ├──────────────┴──────────────┴───────────────────┤
 │              PIO0 ISRs (hardware)                │
 │ RX: bidib_pio_rx_isr()  TX: bidib_pio_tx_isr() │
