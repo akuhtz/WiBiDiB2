@@ -33,7 +33,8 @@
 #include <stdio.h>
 
 #include "pico/stdlib.h"
-#include "pico/sync.h"          // save_and_disable_interrupts / restore_interrupts
+#include "FreeRTOS.h"
+#include "task.h"
 #include "hardware/pio.h"
 #include "hardware/gpio.h"
 

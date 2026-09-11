@@ -26,6 +26,10 @@ set(PICO_BOARD pico2_w CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
+# Pull in FreeRTOS Kernel (must be before project)
+set(FREERTOS_KERNEL_PATH ${USERHOME}/.pico-sdk/FreeRTOS-Kernel)
+include(${FREERTOS_KERNEL_PATH}/portable/ThirdParty/GCC/RP2350_ARM_NTZ/FreeRTOS_Kernel_import.cmake)
+
 project(WiBiDiB C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
@@ -69,15 +73,23 @@ target_link_libraries(WiBiDiB
     hardware_irq
     hardware_gpio
     pico_unique_id
-    pico_cyw43_arch_lwip_poll   # WiFi + lwIP bare-metal
-    pico_lwip_mdns              # répondant mDNS (découverte Engine Driver)
-    hardware_spi                # SPI1 → flash W25Q32VFSIG
+    pico_cyw43_arch_lwip_sys_freertos  # WiFi + lwIP + FreeRTOS (NO_SYS=0)
+    pico_lwip_mdns              # mDNS responder (Engine Driver discovery)
+    hardware_spi                # SPI1 flash W25Q32VFSIG
+    FreeRTOS-Kernel             # FreeRTOS kernel
+    FreeRTOS-Kernel-Heap4       # FreeRTOS heap (heap_4.c — dynamic alloc)
 )
 
 target_include_directories(WiBiDiB PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
 	${CMAKE_CURRENT_LIST_DIR}/dhcpserver
     ${CMAKE_CURRENT_LIST_DIR}/include
+)
+
+# FreeRTOS config file location
+target_compile_definitions(WiBiDiB PRIVATE
+    FREERTOS_CONFIG_FILE_DIRECTORY="${CMAKE_CURRENT_LIST_DIR}/include"
+    FREERTOS_KERNEL_INCLUDE_DIR="${FREERTOS_KERNEL_PATH}/include"
 )
 
 pico_add_extra_outputs(WiBiDiB)

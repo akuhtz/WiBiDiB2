@@ -21,6 +21,8 @@
 #include "pico/cyw43_arch.h"
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 #include "config.h"
 #include "datatypes.h"
@@ -78,7 +80,7 @@ static bool wifi_try_sta(void) {
 
     LOG_INFO(TAG, "Connecting to WiFi SSID passed: %s ...", WIFI_SSID);
 
-    // Wait for IP assignment (DHCP — started automatically by the SDK)
+    // Wait for IP assignment (DHCP — handled by lwIP tcpip_thread)
     struct netif *sta_netif = &cyw43_state.netif[CYW43_ITF_STA];
     uint32_t start = now_ms();
     while (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) != CYW43_LINK_UP
@@ -87,8 +89,7 @@ static bool wifi_try_sta(void) {
             LOG_ERROR(TAG, "STA DHCP/IP timeout");
             return false;
         }
-        cyw43_arch_poll();
-        sleep_ms(100);
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 
     LOG_INFO(TAG, "WiFi STA connected. IP: %s", ip4addr_ntoa(netif_ip4_addr(sta_netif)));

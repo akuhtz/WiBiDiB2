@@ -2,13 +2,23 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "pico/critical_section.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 static inline uint32_t bidib_enter_critical(void) {
-    return save_and_disable_interrupts();
+    if (xPortIsInsideInterrupt()) {
+        return taskENTER_CRITICAL_FROM_ISR();
+    } else {
+        taskENTER_CRITICAL();
+        return 0;
+    }
 }
 static inline void bidib_exit_critical(uint32_t state) {
-    restore_interrupts(state);
+    if (xPortIsInsideInterrupt()) {
+        taskEXIT_CRITICAL_FROM_ISR(state);
+    } else {
+        taskEXIT_CRITICAL();
+    }
 }
 
 static inline uint32_t get_tick_ms(void) {

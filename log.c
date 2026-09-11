@@ -18,7 +18,8 @@
 
 #include "hardware/irq.h"
 #include "hardware/uart.h"
-#include "pico/critical_section.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 #include "log.h"
 
@@ -36,15 +37,24 @@ void log_init(void) {
 }
 
 static void log_push(const char *data, int n) {
-    uint32_t ints = save_and_disable_interrupts();
+    UBaseType_t ints;
+    if (xPortIsInsideInterrupt()) {
+        ints = taskENTER_CRITICAL_FROM_ISR();
+    } else {
+        taskENTER_CRITICAL();
+    }
     for (int i = 0; i < n; i++) {
         log_ring[log_head] = (uint8_t)data[i];
         log_head = (log_head + 1) % LOG_RING_SIZE;
         if (log_head == log_tail) {
-            log_tail = (log_tail + 1) % LOG_RING_SIZE;  // surcharge → drop
+            log_tail = (log_tail + 1) % LOG_RING_SIZE;  // overflow -> drop
         }
     }
-    restore_interrupts(ints);
+    if (xPortIsInsideInterrupt()) {
+        taskEXIT_CRITICAL_FROM_ISR(ints);
+    } else {
+        taskEXIT_CRITICAL();
+    }
 }
 
 void log_printf(const char *fmt, ...) {
@@ -80,14 +90,23 @@ void log_poll(void) {
     uint32_t sent_total = 0;
 
     while (log_head != log_tail) {
-        if (!uart_is_writable(uart)) break;  // FIFO TX plein → non-bloquant
+        if (!uart_is_writable(uart)) break;  // FIFO TX full -> non-blocking
 
-        uint32_t ints = save_and_disable_interrupts();
+        UBaseType_t ints;
+        if (xPortIsInsideInterrupt()) {
+            ints = taskENTER_CRITICAL_FROM_ISR();
+        } else {
+            taskENTER_CRITICAL();
+        }
         uint8_t b = log_ring[log_tail];
         log_tail = (log_tail + 1) % LOG_RING_SIZE;
-        restore_interrupts(ints);
+        if (xPortIsInsideInterrupt()) {
+            taskEXIT_CRITICAL_FROM_ISR(ints);
+        } else {
+            taskEXIT_CRITICAL();
+        }
 
         uart_putc_raw(uart, b);
-        if (++sent_total >= 512) break;  // budget par appel
+        if (++sent_total >= 512) break;  // budget per call
     }
 }

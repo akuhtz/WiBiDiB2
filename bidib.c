@@ -108,11 +108,11 @@ static void __not_in_flash_func(bidib_pio_tx_isr)(void)
             gpio_put(BIDIB_PIN_TEST, 0);
             irq_set_enabled(PIO0_IRQ_1, false);
             tx_mode_logon = false;
-            uint32_t s = save_and_disable_interrupts();
+            uint32_t s = bidib_enter_critical();
             bidib_tx_buf_read  = BIDIB_SIZE_OF_LOGON_MSG + 1;  // 12
             bidib_tx_ahead     = 0;
             bidib_tx_remaining = 0;
-            restore_interrupts(s);
+            bidib_exit_critical(s);
         }
     } else {
         if (tx_nak_mode) {
