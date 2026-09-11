@@ -86,7 +86,10 @@ static void network_task(void *param) {
         LOG_WARN(TAG, "HTTP server init failed");
     }
 
+    // printf("DEBUG: before smartphone_if_init\n");
     smartphone_if_init();
+    // printf("DEBUG: after smartphone_if_init\n");    
+    // smartphone_if_init();
     log_poll();
 
     // Keep task alive — CYW43 async context needs this owner
@@ -117,11 +120,11 @@ int main(void)
 
     // ── Create FreeRTOS tasks ──────────────────────────────────────────
     // Network task (prio 2) — owns CYW43 async context
-    xTaskCreate(network_task, "network", 1024, NULL, 2, NULL);
+    xTaskCreate(network_task, "network", 1536, NULL, 2, NULL);
     // BiDiB parser task (prio 4) — highest, real-time bus
-    xTaskCreate(bidib_parser_task, "bidib_parser", 512, NULL, 4, &bidib_parser_task_handle);
+    xTaskCreate(bidib_parser_task, "bidib_parser", 1024, NULL, 4, &bidib_parser_task_handle);
     // Log output task (prio 1) — UART drain
-    xTaskCreate(log_output_task,   "log_output",   256, NULL, 1, &log_task_handle);
+    xTaskCreate(log_output_task,   "log_output",   512, NULL, 1, &log_task_handle);
 
     // Drain any LOG messages accumulated during init (before tasks run)
     log_poll();

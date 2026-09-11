@@ -316,13 +316,13 @@ void bidib_init(void)
     // IRQ RX → PIO0_IRQ_0
     pio_set_irq0_source_enabled(s_pio, pis_interrupt0, true);
     irq_set_exclusive_handler(PIO0_IRQ_0, bidib_pio_rx_isr);
-    irq_set_priority(PIO0_IRQ_0, 0);
+    irq_set_priority(PIO0_IRQ_0, 4);   // must be >= configMAX_SYSCALL_INTERRUPT_PRIORITY (2)
     irq_set_enabled(PIO0_IRQ_0, true);
 
     // IRQ TX → PIO0_IRQ_1 (disabled until first send)
     pio_set_irq1_source_enabled(s_pio, pis_interrupt1, true);
     irq_set_exclusive_handler(PIO0_IRQ_1, bidib_pio_tx_isr);
-    irq_set_priority(PIO0_IRQ_1, 0);
+    irq_set_priority(PIO0_IRQ_1, 4);   // must be >= configMAX_SYSCALL_INTERRUPT_PRIORITY (2)
     irq_set_enabled(PIO0_IRQ_1, false);  // activée par bidib_start_tx()
 
     printf("bidib_init done\n");
