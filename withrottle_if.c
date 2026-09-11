@@ -285,6 +285,7 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
         // Format: F<0|1><num>  ex: F10 = F0 on, F110 = F10 on
         int fstate = ak[1] - '0';               // 0 ou 1
         int fn     = (int)strtol(ak + 2, NULL, 10);
+        LOG_INFO(TAG, ">>> Loco action, fn: %d, fstate: %d", fn, fstate);
 
         // check if the roster is configured
         const roster_entry_t *entry = findRosterEntry(Loco[slot].dccAdress);
@@ -300,8 +301,24 @@ static void locoAction(const char *th, char *ak, uint8_t slot) {
                 LOG_INFO(TAG, "Toggled current state because function is lockable: %d, state: %d", fn, fstate);
             }
         }
+        // no roster entry
         else {
-            Loco[slot].LocoState[fn] = fstate;
+            if (fn != 2) {
+                // we expect everything other than F2 is lockable
+                if (fstate == 0) {
+                    LOG_INFO(TAG, "Skip fstate = 0 because function is lockable: %d", fn);
+                    return;
+                }
+                else {
+                    // toggle the state
+                    Loco[slot].LocoState[fn] = Loco[slot].LocoState[fn] == 0 ? 1 : 0;
+                    fstate = Loco[slot].LocoState[fn];
+                    LOG_INFO(TAG, "Toggled current state because function is lockable: %d, state: %d", fn, fstate);
+                }
+            }
+            else {
+                Loco[slot].LocoState[fn] = fstate;
+            }
         }
 
         // Return confirmed state to smartphone: M0A<ak><;>F<state><num>
