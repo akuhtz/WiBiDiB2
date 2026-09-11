@@ -7,9 +7,12 @@
 // This example uses a common include to avoid repetition
 #include "lwipopts_examples_common.h"
 
-// lwIP threaded mode (NO_SYS=0) requires mailboxes with size > 0
+// lwIP threaded mode (NO_SYS=0) requires mailboxes and thread sizes > 0
 #ifndef TCPIP_MBOX_SIZE
 #define TCPIP_MBOX_SIZE             16
+#endif
+#ifndef TCPIP_THREAD_STACKSIZE
+#define TCPIP_THREAD_STACKSIZE      1024
 #endif
 #ifndef DEFAULT_THREAD_STACKSIZE
 #define DEFAULT_THREAD_STACKSIZE    1024
