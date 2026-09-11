@@ -63,6 +63,38 @@ static void log_output_task(void *param) {
     }
 }
 
+// ─── WiFi + network init task ────────────────────────────────────
+// Runs cyw43_arch_init() in a proper task context so the async
+// context lock is bound to this task (not the dead main task).
+static void network_task(void *param) {
+    (void)param;
+
+    if (!wifi_init()) {
+        LOG_WARN(TAG, "WiFi failed -- continuing without WiFi");
+    } else {
+        if (!tcp_server_init()) {
+            LOG_ERROR(TAG, "TCP server init failed");
+        } else {
+            LOG_INFO(TAG, "WiFi + TCP OK -- port: %d", WITHROTTLE_PORT);
+        }
+    }
+
+    roster_init();
+    LOG_INFO(TAG, "Roster: %d entries", roster.count);
+
+    if (!http_server_init()) {
+        LOG_WARN(TAG, "HTTP server init failed");
+    }
+
+    smartphone_if_init();
+    log_poll();
+
+    // Keep task alive — CYW43 async context needs this owner
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
 int main(void)
 {
     stdio_init_all();
@@ -77,38 +109,26 @@ int main(void)
     }
 
     // ── BiDiB PIO ──────────────────────────────────────────────────────
+    init_bidib_client_if_buffers();  // stream buffer + spinlock (before PIO ISRs)
     bidib_init();
     LOG_INFO(TAG, "BiDiB PIO OK");
     init_bidib_client();
     LOG_INFO(TAG, "BiDiB client init OK");
 
-    // ── WiFi + TCP ─────────────────────────────────────────────────────
-    if (!wifi_init()) {
-        LOG_WARN(TAG, "WiFi failed -- continuing without WiFi");
-    } else {
-        if (!tcp_server_init()) {
-            LOG_ERROR(TAG, "TCP server init failed");
-        } else {
-            LOG_INFO(TAG, "WiFi + TCP OK -- port: %d", WITHROTTLE_PORT);
-        }
-    }
-
-    // ── Roster + HTTP server ───────────────────────────────────────────
-    roster_init();
-    LOG_INFO(TAG, "Roster: %d entries", roster.count);
-
-    if (!http_server_init()) {
-        LOG_WARN(TAG, "HTTP server init failed");
-    }
-
-    // ── Smartphone interface ───────────────────────────────────────────
-    smartphone_if_init();
-
     // ── Create FreeRTOS tasks ──────────────────────────────────────────
+    // Network task (prio 2) — owns CYW43 async context
+    xTaskCreate(network_task, "network", 1024, NULL, 2, NULL);
+    // BiDiB parser task (prio 4) — highest, real-time bus
     xTaskCreate(bidib_parser_task, "bidib_parser", 512, NULL, 4, &bidib_parser_task_handle);
+    // Log output task (prio 1) — UART drain
     xTaskCreate(log_output_task,   "log_output",   256, NULL, 1, &log_task_handle);
 
+    // Drain any LOG messages accumulated during init (before tasks run)
+    log_poll();
+
     LOG_INFO(TAG, "Starting FreeRTOS scheduler");
+    log_poll();
+
     vTaskStartScheduler();
 
     // Should never reach here

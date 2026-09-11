@@ -89,7 +89,8 @@ extern spin_lock_t *tx_spinlock;
 // ─── API publique ─────────────────────────────────────────────────────────────
 void bidib_start_parser_tx(void);
 
-void     init_bidib_client_if(void);
+void     init_bidib_client_if_buffers(void);  // call BEFORE bidib_init
+void     init_bidib_client_if(void);           // call AFTER bidib_init
 void     stop_bidib_client_if(void);
 
 void     set_bidib_to_receive(void);

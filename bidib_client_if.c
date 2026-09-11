@@ -244,20 +244,22 @@ void bidib_flush_tx(void) {
 // Equivalent to init_bidib_client_if() Atmel
 // The PIO (9-bit UART) is already initialized in bidib_init() (bidib.c)
 // Here we initialize only the buffers and state
-//
-void init_bidib_client_if(void) {
-    // Create RX stream buffer (ISR-safe)
+
+// Phase 1: Create stream buffer + spinlock (call BEFORE bidib_init)
+void init_bidib_client_if_buffers(void) {
     bidib_rx_stream = xStreamBufferCreate(BIDIB_RX_STREAM_SIZE, BIDIB_RX_TRIGGER);
-
-    // Create TX spinlock (for multi-core safety)
     tx_spinlock = spin_lock_init(next_striped_spin_lock_num());
+    LOG_INFO(TAG,"buffers init done (stream buffer + spinlock)");
+}
 
+// Phase 2: Init buffer state + direction (call AFTER bidib_init)
+void init_bidib_client_if(void) {
     set_bidib_to_receive();
     bidib_flush_rx();
     bidib_flush_tx();
     my_bidib_node_addr = 0xFF;
     bidib_tx0_msg_num  = 1;
-    LOG_INFO(TAG,"init done (stream buffer + spinlock)");
+    LOG_INFO(TAG,"init done");
 }
 
 void stop_bidib_client_if(void) {
