@@ -23,6 +23,7 @@
 #include "flash_store.h"
 #include "http_server.h"
 #include "roster.h"
+#include "led.h"
 #include "config.h"
 
 static const char *TAG = "main";
@@ -46,6 +47,13 @@ void HardFault_Handler(void) {
     uint32_t lr;
     __asm volatile ("mov %0, lr" : "=r"(lr));
     printf("HARDFAULT: CFSR=0x%08lX BFAR=0x%08lX MMFAR=0x%08lX LR=0x%08lX\n", cfsr, bfar, mmfar, lr);
+    if (cfsr & (1UL << 20)) {
+        uint32_t psp, psplim;
+        __asm volatile ("mrs %0, psp" : "=r"(psp));
+        __asm volatile ("mrs %0, psplim" : "=r"(psplim));
+        printf("STKOF: PSP=0x%08lX PSPLIM=0x%08lX (used=%ld)\n",
+               psp, psplim, (long)(psplim - psp));
+    }
     for (;;) {}
 }
 
@@ -57,6 +65,12 @@ void isr_hardfault(void) {
     uint32_t lr;
     __asm volatile ("mov %0, lr" : "=r"(lr));
     printf("HARDFAULT: CFSR=0x%08lX BFAR=0x%08lX MMFAR=0x%08lX LR=0x%08lX\n", cfsr, bfar, mmfar, lr);
+    if (cfsr & (1UL << 20)) {
+        uint32_t psp, psplim;
+        __asm volatile ("mrs %0, psp" : "=r"(psp));
+        __asm volatile ("mrs %0, psplim" : "=r"(psplim));
+        printf("STKOF: PSP=0x%08lX PSPLIM=0x%08lX\n", psp, psplim);
+    }
     for (;;) {}
 }
 
@@ -90,9 +104,13 @@ static void log_output_task(void *param) {
 static void network_task(void *param) {
     (void)param;
 
+    led_set_state(LED_BLINK_SLOW);
+
     if (!wifi_init()) {
         LOG_WARN(TAG, "WiFi failed -- continuing without WiFi");
+        led_set_state(LED_OFF);
     } else {
+        led_set_state(LED_ON);
         if (!tcp_server_init()) {
             LOG_ERROR(TAG, "TCP server init failed");
         } else {
@@ -126,6 +144,10 @@ int main(void)
     sleep_ms(3000);
     LOG_INFO(TAG, "=== WiBiDiB2 Pico 2W (FreeRTOS) ===");
     stdio_flush();
+
+    // ── LED task — runs immediately, waits for CYW43 before touching GPIO ──
+    led_task_init();
+    led_set_state(LED_BLINK_FAST);
 
     // ── Flash (must precede init_bidib_client for user string) ──────────
     if (!flash_store_init()) {

@@ -7,9 +7,9 @@ Migrated WiBiDiB2 from bare-metal polling (`NO_SYS=1`) to FreeRTOS
 mode to threaded mode, runs the BiDiB parser and log output as dedicated
 FreeRTOS tasks, and adds dual-core safety via hardware spinlocks.
 
-**Branch:** `freertos` (2 commits on top of `main`)
-**Binary impact:** 362KB → 380KB text (+18KB), 92KB → 132KB bss (+40KB).
-Total 511KB — fits in Pico 2W's 520KB SRAM.
+**Branch:** `freertos`
+**Binary impact:** 362KB → 377KB text (+15KB), 92KB → 140KB bss (+48KB).
+Total 517KB — fits in Pico 2W's 520KB SRAM.
 
 ---
 
@@ -17,16 +17,20 @@ Total 511KB — fits in Pico 2W's 520KB SRAM.
 
 | File | Change |
 |------|--------|
-| `CMakeLists.txt` | FreeRTOS kernel import, new link targets |
-| `include/FreeRTOSConfig.h` | **New file** — RP2350 kernel configuration |
+| `CMakeLists.txt` | FreeRTOS kernel import, new link targets, global CYW43 defines |
+| `include/FreeRTOSConfig.h` | RP2350 kernel configuration |
+| `include/lwipopts.h` | `NO_SYS` 1 → 0, `TCPIP_MBOX_SIZE`, `TCPIP_THREAD_STACKSIZE` |
 | `include/lwipopts_examples_common.h` | `NO_SYS` 1 → 0 |
 | `include/bidib.h` | Critical sections → FreeRTOS-aware |
 | `include/bidib_client_if.h` | RX buffer externs removed, spinlock extern added |
-| `bidib_client_if.c` | RX stream buffer, TX spinlock |
-| `bidib.c` | TX ISR + parser TX use spinlock |
+| `bidib_client_if.c` | RX stream buffer, TX spinlock, `init_bidib_client_if_buffers()` |
+| `bidib.c` | TX ISR + parser TX use spinlock, PIO ISR priorities 0 → 4 |
 | `log.c` | Critical sections → FreeRTOS-aware |
-| `main.c` | Tasks + scheduler replaces `while(1)` loop |
-| `tcp_server.c` | `cyw43_arch_poll()` → `vTaskDelay()` |
+| `main.c` | Tasks + scheduler, LED task, fault handlers with PSPLIM dump |
+| `tcp_server.c` | `cyw43_arch_poll()` → `vTaskDelay()`, `wifi_init()` simplified |
+| `http_server.c` | Fully resumable XML state machine (fixes ERR_MEM partial sends) |
+| `include/led.h` | **New file** — LED state enum and API |
+| `led.c` | **New file** — LED control task |
 
 ---
 
@@ -48,13 +52,11 @@ pico_cyw43_arch_lwip_poll       →  pico_cyw43_arch_lwip_sys_freertos
 + FreeRTOS-Kernel
 + FreeRTOS-Kernel-Heap4
 
-# Added compile definitions
-FREERTOS_CONFIG_FILE_DIRECTORY="${CMAKE_CURRENT_LIST_DIR}/include"
-FREERTOS_KERNEL_INCLUDE_DIR="${FREERTOS_KERNEL_PATH}/include"
-CYW43_TASK_PRIORITY=3            # WiFi below BiDiB parser (prio 4)
+# Global compile definitions (before pico_sdk_init so SDK sources see them)
+add_compile_definitions(CYW43_TASK_STACK_SIZE=2048 CYW43_TASK_PRIORITY=3)
 ```
 
-### 2. FreeRTOS Configuration (`include/FreeRTOSConfig.h`) — NEW
+### 2. FreeRTOS Configuration (`include/FreeRTOSConfig.h`)
 
 RP2350 Cortex-M33 configuration:
 
@@ -62,22 +64,15 @@ RP2350 Cortex-M33 configuration:
 |---------|-------|-----------|
 | `configCPU_CLOCK_HZ` | 150 MHz | RP2350 default |
 | `configTICK_RATE_HZ` | 1000 | 1ms tick |
-| `configMAX_PRIORITIES` | 5 | WiFi(4), BiDiB(3), Timer(2), Log(1), Idle(0) |
-| `configMINIMAL_STACK_SIZE` | 256 words | 1KB |
-| `configTOTAL_HEAP_SIZE` | 32 KB | FreeRTOS heap (heap_4.c) |
+| `configMAX_PRIORITIES` | 7 | See task table below |
+| `configMINIMAL_STACK_SIZE` | 512 words | 2KB (increased from 256) |
+| `configTOTAL_HEAP_SIZE` | 40 KB | FreeRTOS heap (heap_4.c, increased from 36KB) |
 | `configUSE_RECURSIVE_MUTEXES` | 1 | Required by lwIP `sys_arch.c` |
 | `configCHECK_FOR_STACK_OVERFLOW` | 2 | Both patterns checked |
 | `configPRIO_BITS` | 4 | RP2350 NVIC priority bits |
 | `configRUN_FREERTOS_SECURE_ONLY` | 1 | TrustZone disabled |
 
-Hooks mapped to Cortex-M33 vectors:
-```c
-#define xPortPendSVHandler    PendSV_Handler
-#define xPortSysTickHandler   SysTick_Handler
-#define vPortSVCHandler       SVC_Handler
-```
-
-### 3. lwIP Configuration (`include/lwipopts_examples_common.h`)
+### 3. lwIP Configuration (`include/lwipopts.h`)
 
 ```c
 // Before
@@ -85,176 +80,117 @@ Hooks mapped to Cortex-M33 vectors:
 
 // After
 #define NO_SYS  0   // threaded: lwIP runs in tcpip_thread
+#define TCPIP_MBOX_SIZE       16    // default was 0 — caused assert
+#define TCPIP_THREAD_STACKSIZE 2048 // default was too small
+#define DEFAULT_THREAD_STACKSIZE 1024
 ```
 
-This switches lwIP from raw callback API to sequential API. All TCP/UDP
-operations now go through `tcpip_thread` — safer and required for
-CYW43 WiFi driver integration with FreeRTOS.
+### 4. BiDiB RX — FreeRTOS Stream Buffer (`bidib_client_if.c`)
 
-### 4. Critical Sections (`include/bidib.h`)
+**Before:** SPSC ring buffer with manual index management.
+**After:** `StreamBufferHandle_t` with ISR-safe `xStreamBufferSendFromISR()`
+and blocking `xStreamBufferReceive()`.
 
-**Before:** `save_and_disable_interrupts()` / `restore_interrupts()` (Pico SDK).
-**After:** FreeRTOS-aware critical sections that detect ISR vs task context:
+Created via `init_bidib_client_if_buffers()` — called before `bidib_init()`
+so the stream buffer exists before PIO ISRs fire.
 
-```c
-static inline uint32_t bidib_enter_critical(void) {
-    if (xPortIsInsideInterrupt()) {
-        return taskENTER_CRITICAL_FROM_ISR();
-    } else {
-        taskENTER_CRITICAL();
-        return 0;
-    }
-}
-
-static inline void bidib_exit_critical(uint32_t state) {
-    if (xPortIsInsideInterrupt()) {
-        taskEXIT_CRITICAL_FROM_ISR(state);
-    } else {
-        taskEXIT_CRITICAL();
-    }
-}
-```
-
-Used by `log.c` and other code that may be called from both ISR and task
-contexts. The BiDiB TX path now uses hardware spinlocks instead (see below).
-
-### 5. BiDiB RX — FreeRTOS Stream Buffer (`bidib_client_if.c`)
-
-**Before:** SPSC (single-producer, single-consumer) ring buffer:
-```c
-uint16_t bidib_rx_buf[BIDIB_RX_BUF_SIZE];  // 64 entries
-uint8_t  bidib_rx_buf_read, bidib_rx_buf_write;
-```
-
-**After:** FreeRTOS stream buffer:
-```c
-#define BIDIB_RX_STREAM_SIZE  256  // bytes (128 x uint16_t)
-#define BIDIB_RX_TRIGGER      2    // wake on 1 word
-static StreamBufferHandle_t bidib_rx_stream;
-```
-
-| Operation | Before | After |
-|-----------|--------|-------|
-| ISR write | Direct array write + index advance | `xStreamBufferSendFromISR()` |
-| Task read | Direct array read + index advance | `xStreamBufferReceive()` |
-| Check ready | `read != write` | `xStreamBufferBytesAvailable() >= 2` |
-| Flush | Manual index reset | `xStreamBufferReset()` |
-
-Benefits:
-- ISR-safe without disabling interrupts
-- Consumer task blocks until data available (no busy-wait)
-- Clean API boundary between ISR and task
-
-### 6. BiDiB TX — Hardware Spinlock (`bidib_client_if.c`, `bidib.c`)
+### 5. BiDiB TX — Hardware Spinlock (`bidib_client_if.c`, `bidib.c`)
 
 **Before:** `bidib_enter_critical()` (disables interrupts on current core only).
 **After:** `spin_lock_blocking(tx_spinlock)` (hardware spinlock, works across cores).
 
-```c
-spin_lock_t *tx_spinlock;  // initialized in init_bidib_client_if()
+### 6. PIO ISR Priorities (`bidib.c`)
 
-// Producer (task context): bidib_tx_fifo_put()
-uint32_t saved = spin_lock_blocking(tx_spinlock);
-// ... write to bidib_tx_buf, advance bidib_tx_buf_write, bidib_tx_ahead ...
-spin_unlock(tx_spinlock, saved);
+**Before:** Priority 0 (default) — too low for FreeRTOS API calls.
+**After:** Priority 4 — must be ≥ `configMAX_SYSCALL_INTERRUPT_PRIORITY`
+(= 2, implied by `configPRIO_BITS=4`) to safely call `xStreamBufferSendFromISR()`.
 
-// Consumer (ISR context): bidib_pio_tx_isr()
-uint32_t saved = spin_lock_blocking(tx_spinlock);
-// ... read from bidib_tx_buf, advance bidib_tx_buf_read, bidib_tx_fill ...
-spin_unlock(tx_spinlock, saved);
-```
+### 7. Main Loop → FreeRTOS Tasks (`main.c`)
 
-Protected variables: `bidib_tx_buf[]`, `bidib_tx_buf_read`,
-`bidib_tx_buf_write`, `bidib_tx_fill`, `bidib_tx_ahead`.
+Task priorities and stack sizes:
 
-Protected code paths:
-- `bidib_tx_fifo_put()` — task writes message to TX buffer
-- `bidib_start_parser_tx()` — task starts sending next message
-- `bidib_pio_tx_isr()` — ISR chains next message after CRC sent
-- `bidib_pio_rx_isr()` — ISR responds to poll with pending data
-- `bidib_tx_fifo_empty/ready/okay/healthy()` — task checks buffer state
-- `bidib_flush_tx()` — task resets buffer
-
-Benefits:
-- Correct on dual-core RP2350 (task and ISR may run on different cores)
-- Spinlock held for very short durations only
-- `next_striped_spin_lock_num()` distributes spinlocks to reduce contention
-
-### 7. Log Critical Sections (`log.c`)
-
-**Before:** `save_and_disable_interrupts()` / `restore_interrupts()`.
-**After:** FreeRTOS-aware `taskENTER_CRITICAL_FROM_ISR()` / `taskEXIT_CRITICAL_FROM_ISR()`.
-
-Applied to both `log_push()` (called from any context) and `log_poll()`
-(called from log output task). Detects ISR context via `xPortIsInsideInterrupt()`.
-
-### 8. Main Loop → FreeRTOS Tasks (`main.c`)
-
-**Before:**
-```c
-while (1) {
-    cyw43_arch_poll();
-    log_poll();
-    run_bidib_client();
-}
-```
-
-**After:**
-```c
-// WiFi/LWIP — handled by pico-sdk CYW43 async context (prio 3)
-// BiDiB parser task
-xTaskCreate(bidib_parser_task, "bidib_parser", 512, NULL, 4,
-            &bidib_parser_task_handle);
-// Log output task
-xTaskCreate(log_output_task, "log_output", 256, NULL, 1,
-            &log_task_handle);
-
-vTaskStartScheduler();  // never returns
-```
-
-Task priorities (BiDiB highest — real-time bus protocol):
 | Task | Priority | Stack | Function |
 |------|----------|-------|----------|
-| BiDiB parser | 4 | 2KB | `run_bidib_client()` loop |
-| WiFi/LWIP (pico-sdk) | 3 | managed by SDK | CYW43 async context |
-| Timer | 2 | 1KB | FreeRTOS internal |
-| Log output | 1 | 1KB | `log_poll()` UART drain |
+| BiDiB parser | 4 | 2048 words (8KB) | `run_bidib_client()` loop |
+| CYW43 async (pico-sdk) | 3 | 2048 words (8KB) | WiFi driver event loop |
+| Network init | 2 | 1536 words (6KB) | WiFi/TCP/roster/HTTP/smartphone init |
+| Timer | 2 | 256 words | FreeRTOS internal |
+| Log output | 1 | 512 words (2KB) | `log_poll()` UART drain |
+| LED | 1 | 256 words | CYW43 GPIO blink control |
 | Idle | 0 | 256 words | FreeRTOS internal |
 
-WiFi priority overridden via `CYW43_TASK_PRIORITY=3` in CMakeLists.txt
-(default is 4). BiDiB parser runs at priority 4 to ensure timely token
-and poll handling — the bus protocol cannot tolerate delays.
+BiDiB parser at prio 4 (highest) because the bus protocol is more
+time-critical than WiFi. CYW43 overridden to prio 3 (default was 4).
 
-Added hooks:
+Hooks:
 - `vApplicationStackOverflowHook()` — prints task name, halts
 - `vApplicationMallocFailedHook()` — prints message, halts
+- `HardFault_Handler` / `isr_hardfault` — dumps CFSR/BFAR/PSP/PSPLIM
 
-### 9. TCP Server (`tcp_server.c`)
+### 8. LED Control (`led.c`, `include/led.h`)
 
-**Before:** `cyw43_arch_poll()` + `sleep_ms(100)` in STA connection wait loop.
-**After:** `vTaskDelay(pdMS_TO_TICKS(100))` — yields to other tasks while waiting.
+**New** dedicated LED task with state-driven control:
 
-The `cyw43_arch_poll()` call is no longer needed; the CYW43 driver runs
-in its own async context managed by the pico-sdk FreeRTOS integration.
+```c
+typedef enum {
+    LED_OFF,
+    LED_ON,
+    LED_BLINK_SLOW,   // 500ms toggle
+    LED_BLINK_FAST,   // 250ms toggle
+} led_state_t;
+
+void led_set_state(led_state_t state);   // any task, any time
+void led_set_cyw43_ready(void);          // after cyw43_arch_init()
+```
+
+The LED task waits for `led_set_cyw43_ready()` before touching CYW43 GPIO,
+since the async context lock is bound to the task that called
+`cyw43_arch_init()` (network_task).
+
+Flow: fast blink during boot → slow blink during WiFi connect → solid ON.
+
+### 9. HTTP Server (`http_server.c`)
+
+**Before:** `xml_start()` did multiple `tcp_write()` calls that could fail
+with `ERR_MEM`, leaving the XML header incomplete. `xml_continue()` would
+then skip the rest of the header.
+
+**After:** Fully resumable phase state machine. Every chunk of output
+(HTTP header, XML declaration, roster-config tags, per-loco data, closing
+tags) gets its own phase number. If `tcp_write()` returns `ERR_MEM`, the
+current chunk is retried on the next poll — no data is skipped.
+
+### 10. Fault Handling (`main.c`)
+
+Added PSPLIM register dump to both `HardFault_Handler` and `isr_hardfault`
+overrides for Cortex-M33 stack overflow debugging:
+
+```c
+uint32_t psp, psplim;
+__asm volatile ("mrs %0, psp" : "=r"(psp));
+__asm volatile ("mrs %0, psplim" : "=r"(psplim));
+printf("STKOF: PSP=0x%08lX PSPLIM=0x%08lX\n", psp, psplim);
+```
 
 ---
 
 ## Task Architecture (After)
 
 ```
-┌─────────────────────────────────────────────────┐
-│                 FreeRTOS Scheduler               │
-├──────────────┬──────────────┬───────────────────┤
-│ BiDiB Parser │ WiFi/LWIP    │ Log Output        │
-│ prio 4       │ prio 3       │ prio 1            │
-│ run_bidib_   │ CYW43 async  │ log_poll()        │
-│ client()     │ context      │ → UART TX         │
-│ → TX/RX msgs │ (pico-sdk)   │                   │
-├──────────────┴──────────────┴───────────────────┤
-│              PIO0 ISRs (hardware)                │
-│ RX: bidib_pio_rx_isr()  TX: bidib_pio_tx_isr() │
-│ → xStreamBufferSendFromISR()  → spin_lock       │
-└─────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                   FreeRTOS Scheduler                     │
+├──────────────┬──────────────┬──────────────┬────────────┤
+│ BiDiB Parser │ CYW43 async  │ Network Init │ Log Output │
+│ prio 4       │ prio 3       │ prio 2       │ prio 1     │
+│ 8KB stack    │ 8KB stack    │ 6KB stack    │ 2KB stack  │
+│ run_bidib_   │ WiFi driver  │ WiFi/TCP/    │ log_poll() │
+│ client()     │ events       │ roster/HTTP  │ → UART TX  │
+├──────────────┴──────────────┼──────────────┤            │
+│                             │   LED (1)    │            │
+│              PIO0 ISRs      │ 256 words    │            │
+│ RX: xStreamBufferSendFromISR│ CYW43 GPIO   │            │
+│ TX: spin_lock_blocking      │ blink/on/off │            │
+└─────────────────────────────┴──────────────┴────────────┘
 ```
 
 ---
@@ -262,7 +198,8 @@ in its own async context managed by the pico-sdk FreeRTOS integration.
 ## Testing Notes
 
 - Build: `cmake -B build -G Ninja -DPICO_SDK_PATH=... -DPICO_BOARD=pico2_w && cmake --build build`
-- Binary: 380KB text, 132KB bss (511KB total)
-- On hardware: WiFi AP starts, EngineDriver discovers via mDNS, BiDiB bus
-  functions, HTTP roster serves on port 8080
+- Binary: 377KB text, 140KB bss (517KB total)
+- On hardware: LED blinks during boot, WiFi connects, LED stays on.
+  EngineDriver discovers via mDNS, BiDiB bus functions, HTTP roster
+  serves on port 8080 without XML corruption.
 - FreeRTOS scheduler runs all tasks; no `cyw43_arch_poll()` in main loop

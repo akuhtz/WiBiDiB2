@@ -30,6 +30,7 @@
 #include "smartphone_if.h"
 #include "dhcpserver/dhcpserver.h"
 #include "mdns.h"
+#include "led.h"
 
 static const char *TAG = "tcp_server";
 
@@ -56,6 +57,7 @@ bool wifi_init(void) {
         LOG_ERROR(TAG, "cyw43_arch_init failed");
         return false;
     }
+    led_set_cyw43_ready();
 
     if (wifi_try_sta()) {
         return true;
@@ -78,13 +80,10 @@ static bool wifi_try_sta(void) {
         return false;
     }
 
-    LOG_INFO(TAG, "Connecting to WiFi SSID passed: %s ...", WIFI_SSID);
-
     // Wait for IP assignment (DHCP — handled by lwIP tcpip_thread)
     struct netif *sta_netif = &cyw43_state.netif[CYW43_ITF_STA];
     uint32_t start = now_ms();
-    while (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) != CYW43_LINK_UP
-        || ip4_addr_isany_val(*netif_ip4_addr(sta_netif))) {
+    while (ip4_addr_isany_val(*netif_ip4_addr(sta_netif))) {
         if (now_ms() - start > WIFI_STA_TIMEOUT_MS) {
             LOG_ERROR(TAG, "STA DHCP/IP timeout");
             return false;

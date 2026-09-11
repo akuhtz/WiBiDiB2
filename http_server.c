@@ -7,7 +7,9 @@
  *
  * Design:
  *   - One connection at a time (Pico RAM constraints)
- *   - XML generated on-the-fly via chunked tcp_write (no full-XML buffer)
+ *   - ALL XML generation is resumable via a single phase counter.
+ *     If tcp_write returns ERR_MEM, the current chunk is retried
+ *     on the next poll — no data is skipped.
  *   - Connection closed after response (no keep-alive)
  */
 
@@ -40,9 +42,28 @@ typedef struct {
 static http_conn_t http_conn;                // single connection state
 static struct tcp_pcb *http_listen_pcb;      // listening PCB
 
-// ─── XML generation helpers ──────────────────────────────────────────────
-// Each function writes a chunk directly via tcp_write.
-// Returns ERR_OK on success, ERR_MEM if write fails (retry later).
+// ─── Phase numbering ──────────────────────────────────────────────────────
+// Every chunk of output gets its own phase number, so a partial send
+// due to ERR_MEM can be retried on the next poll without skipping data.
+//
+//   0   HTTP response header
+//   1   XML declaration
+//   2   <roster-config ...> part 1
+//   3   <roster-config ...> part 2
+//   4   <roster>
+//   5+  Per-loco phases (5 phases per loco, offset by LOCO_PHASE_BASE)
+//       +0  locomotive opening tag
+//       +1  (decoder — skipped, placeholder)
+//       +2  locoaddress
+//       +3  functionlabels
+//       +4  </locomotive>
+//   N-1 </roster></roster-config>
+//   N   close connection
+
+#define LOCO_PHASE_BASE  5
+#define LOCO_PHASES_PER  5
+
+// ─── XML write helpers ────────────────────────────────────────────────────
 
 static err_t xml_write(struct tcp_pcb *pcb, const char *data, u16_t len) {
     err_t err = tcp_write(pcb, data, len, TCP_WRITE_FLAG_COPY);
@@ -73,195 +94,175 @@ static err_t xml_write_escaped(struct tcp_pcb *pcb, const char *s) {
     return ERR_OK;
 }
 
-// ─── XML phases for one locomotive ───────────────────────────────────────
-// Each phase writes a small chunk. Returns true if done with this loco.
-static bool xml_send_loco_phase(struct tcp_pcb *pcb, const roster_entry_t *e,
-                                uint8_t *phase) {
+// ─── Compute the total number of phases ───────────────────────────────────
+//   LOCO_PHASE_BASE + roster.count * LOCO_PHASES_PER + 2 (closing + done)
+static uint8_t xml_total_phases(void) {
+    return LOCO_PHASE_BASE + roster.count * LOCO_PHASES_PER + 2;
+}
+
+// ─── Resumable XML generation ─────────────────────────────────────────────
+// Returns true when the entire response has been sent and the connection
+// is closed (or being closed).  Returns false if we need another poll.
+static bool xml_send_chunk(struct tcp_pcb *pcb) {
     char buf[128];
+    uint8_t p = http_conn.phase;
 
-    switch (*phase) {
-    case 0:  // opening tag
+    // ── Phase 0: HTTP response header ──────────────────────────────────
+    if (p == 0) {
+        if (xml_write_str(pcb,
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: application/xml; charset=utf-8\r\n"
+                "Cache-Control: no-cache, no-store\r\n"
+                "Connection: close\r\n"
+                "\r\n") != ERR_OK) return false;
+        http_conn.phase = ++p;
+    }
+
+    // ── Phase 1: XML declaration ───────────────────────────────────────
+    if (p == 1) {
         log_snprintf(buf, sizeof(buf),
-            "<locomotive id=\"%s\" roadNumber=\"%s\" roadName=\"%s\" "
-            "mfg=\"%s\" model=\"%s\" dccAddress=\"%d\" ",
-            e->id, e->roadNumber, e->roadName,
-            e->mfg, e->model, e->dccAddress);
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n");
         if (xml_write_str(pcb, buf) != ERR_OK) return false;
+        http_conn.phase = ++p;
+    }
 
+    // ── Phase 2: <roster-config ...> part 1 ────────────────────────────
+    if (p == 2) {
         log_snprintf(buf, sizeof(buf),
-            "maxSpeed=\"%d\">",
-            e->maxSpeed);
+            "<roster-config xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ");
         if (xml_write_str(pcb, buf) != ERR_OK) return false;
+        http_conn.phase = ++p;
+    }
 
-        (*phase)++;
-        return false;
-
-    case 1:  // decoder
-        // log_snprintf(buf, sizeof(buf),
-        //     "<decoder model=\"%s\" family=\"%s\" maxFnNum=\"%d\"/>",
-        //     e->decoderModel, e->decoderFamily, e->maxFnNum);
-        // if (xml_write_str(pcb, buf) != ERR_OK) return false;
-        (*phase)++;
-        return false;
-
-    case 2:  // locoaddress
+    // ── Phase 3: <roster-config ...> part 2 ────────────────────────────
+    if (p == 3) {
         log_snprintf(buf, sizeof(buf),
-            "<locoaddress><dcclocoaddress number=\"%d\" longaddress=\"%s\"/>",
-            e->dccAddress, e->longAddress ? "true" : "false");
+            "xsi:noNamespaceSchemaLocation=\"http://jmri.org/xml/schema/roster.xsd\">\r\n");
         if (xml_write_str(pcb, buf) != ERR_OK) return false;
+        http_conn.phase = ++p;
+    }
 
-        log_snprintf(buf, sizeof(buf),
-            "<number>%d</number>"
-            "<protocol>%s</protocol>",
-            e->dccAddress, e->longAddress ? "dcc_long" : "dcc_short");
+    // ── Phase 4: <roster> ──────────────────────────────────────────────
+    if (p == 4) {
+        log_snprintf(buf, sizeof(buf), "<roster>\r\n");
         if (xml_write_str(pcb, buf) != ERR_OK) return false;
+        http_conn.phase = ++p;
+    }
 
-        log_snprintf(buf, sizeof(buf),
-            "</locoaddress>");
-        if (xml_write_str(pcb, buf) != ERR_OK) return false;
+    // ── Per-loco phases ────────────────────────────────────────────────
+    if (p >= LOCO_PHASE_BASE && p < LOCO_PHASE_BASE + roster.count * LOCO_PHASES_PER) {
+        uint8_t idx = (p - LOCO_PHASE_BASE) / LOCO_PHASES_PER;
+        uint8_t lp  = (p - LOCO_PHASE_BASE) % LOCO_PHASES_PER;
 
-        (*phase)++;
-        return false;
-
-    case 3: {  // function labels
-        log_snprintf(buf, sizeof(buf),
-            "<functionlabels>");
-        if (xml_write_str(pcb, buf) != ERR_OK) return false;
-
-        for (uint8_t fn = 0; fn <= e->maxFnNum && fn <= ROSTER_FUNC_MAX; fn++) {
-            if (e->functions[fn].label[0] == '\0') continue;
-            log_snprintf(buf, sizeof(buf),
-                "<functionlabel num=\"%d\" lockable=\"%s\" visible=\"%s\">",
-                fn,
-                e->functions[fn].lockable ? "true" : "false",
-                e->functions[fn].visible  ? "true" : "false");
-            if (xml_write_str(pcb, buf) != ERR_OK) return false;
-
-            log_snprintf(buf, sizeof(buf),
-                e->functions[fn].label);
-            if (xml_write_escaped(pcb, buf) != ERR_OK) return false;
-
-            log_snprintf(buf, sizeof(buf),
-                "</functionlabel>");
-            if (xml_write_str(pcb, buf) != ERR_OK) return false;
+        const roster_entry_t *e = roster_get(idx);
+        if (!e) {
+            // skip missing entry — advance past all its phases
+            http_conn.phase = LOCO_PHASE_BASE + (idx + 1) * LOCO_PHASES_PER;
+            return false;
         }
 
-        log_snprintf(buf, sizeof(buf),
-            "</functionlabels>");
-        if (xml_write_str(pcb, buf) != ERR_OK) return false;
+        switch (lp) {
+        case 0:  // locomotive opening tag
+            log_snprintf(buf, sizeof(buf),
+                "<locomotive id=\"%s\" roadNumber=\"%s\" roadName=\"%s\" "
+                "mfg=\"%s\" model=\"%s\" dccAddress=\"%d\" ",
+                e->id, e->roadNumber, e->roadName,
+                e->mfg, e->model, e->dccAddress);
+            if (xml_write_str(pcb, buf) != ERR_OK) return false;
 
-        // LOG_INFO(TAG,"Write closing functionlabels tag passed!");
+            log_snprintf(buf, sizeof(buf),
+                "maxSpeed=\"%d\">",
+                e->maxSpeed);
+            if (xml_write_str(pcb, buf) != ERR_OK) return false;
 
-        (*phase)++;
-        return false;
+            http_conn.phase = ++p;
+            return false;
+
+        case 1:  // decoder (skipped — placeholder)
+            http_conn.phase = ++p;
+            return false;
+
+        case 2:  // locoaddress
+            log_snprintf(buf, sizeof(buf),
+                "<locoaddress><dcclocoaddress number=\"%d\" longaddress=\"%s\"/>",
+                e->dccAddress, e->longAddress ? "true" : "false");
+            if (xml_write_str(pcb, buf) != ERR_OK) return false;
+
+            log_snprintf(buf, sizeof(buf),
+                "<number>%d</number>"
+                "<protocol>%s</protocol>",
+                e->dccAddress, e->longAddress ? "dcc_long" : "dcc_short");
+            if (xml_write_str(pcb, buf) != ERR_OK) return false;
+
+            log_snprintf(buf, sizeof(buf),
+                "</locoaddress>");
+            if (xml_write_str(pcb, buf) != ERR_OK) return false;
+
+            http_conn.phase = ++p;
+            return false;
+
+        case 3: {  // functionlabels
+            log_snprintf(buf, sizeof(buf), "<functionlabels>");
+            if (xml_write_str(pcb, buf) != ERR_OK) return false;
+
+            for (uint8_t fn = 0; fn <= e->maxFnNum && fn <= ROSTER_FUNC_MAX; fn++) {
+                if (e->functions[fn].label[0] == '\0') continue;
+                log_snprintf(buf, sizeof(buf),
+                    "<functionlabel num=\"%d\" lockable=\"%s\" visible=\"%s\">",
+                    fn,
+                    e->functions[fn].lockable ? "true" : "false",
+                    e->functions[fn].visible  ? "true" : "false");
+                if (xml_write_str(pcb, buf) != ERR_OK) return false;
+
+                log_snprintf(buf, sizeof(buf),
+                    e->functions[fn].label);
+                if (xml_write_escaped(pcb, buf) != ERR_OK) return false;
+
+                log_snprintf(buf, sizeof(buf),
+                    "</functionlabel>");
+                if (xml_write_str(pcb, buf) != ERR_OK) return false;
+            }
+
+            log_snprintf(buf, sizeof(buf), "</functionlabels>");
+            if (xml_write_str(pcb, buf) != ERR_OK) return false;
+
+            http_conn.phase = ++p;
+            return false;
+        }
+
+        case 4:  // </locomotive>
+            log_snprintf(buf, sizeof(buf), "</locomotive>");
+            if (xml_write_str(pcb, buf) != ERR_OK) return false;
+
+            http_conn.phase = ++p;
+            return false;
+        }
     }
 
-    case 4:  // closing tag
-        // LOG_INFO(TAG,"Write closing locomotive tag!");
-
+    // ── Closing tags ───────────────────────────────────────────────────
+    if (p == LOCO_PHASE_BASE + roster.count * LOCO_PHASES_PER) {
         log_snprintf(buf, sizeof(buf),
-            "</locomotive>");
+            "</roster>\r\n</roster-config>\r\n");
         if (xml_write_str(pcb, buf) != ERR_OK) return false;
-
-        // LOG_INFO(TAG,"Write closing locomotive tag passed!");
-
-        (*phase)++;
-        return true;  // done with this loco
-
-    default:
-        return true;
+        http_conn.phase = ++p;
     }
-}
 
-// ─── Send XML response header ────────────────────────────────────────────
-static err_t xml_send_header(struct tcp_pcb *pcb) {
-    return xml_write_str(pcb,
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: application/xml; charset=utf-8\r\n"
-        "Cache-Control: no-cache, no-store\r\n"
-        "Connection: close\r\n"
-        "\r\n");
-}
-
-// ─── Start sending roster XML ────────────────────────────────────────────
-static void xml_start(struct tcp_pcb *pcb) {
-
-    char buf[128];
-
-    http_conn.state      = HTTP_SENDING_XML;
-    http_conn.loco_index = 0;
-    http_conn.phase      = 0;
-
-    if (xml_send_header(pcb) != ERR_OK) return;
-
-    log_snprintf(buf, sizeof(buf),
-       "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n");
-    if (xml_write_str(pcb, buf) != ERR_OK) return;
-
-    log_snprintf(buf, sizeof(buf),
-        "<roster-config xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ");
-    if (xml_write_str(pcb, buf) != ERR_OK) return;
-
-    log_snprintf(buf, sizeof(buf),
-        "xsi:noNamespaceSchemaLocation=\"http://jmri.org/xml/schema/roster.xsd\">\r\n");
-    if (xml_write_str(pcb, buf) != ERR_OK) return;
-
-    log_snprintf(buf, sizeof(buf),
-        "<roster>\r\n");
-    if (xml_write_str(pcb, buf) != ERR_OK) return;
-
-    // if (xml_write_str(pcb,
-    //     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
-    //     "<roster-config>\r\n"
-    //     "<roster>\r\n") != ERR_OK) return;
-}
-
-static void xml_end(struct tcp_pcb *pcb) {
-
-    char buf[128];
-
-    log_snprintf(buf, sizeof(buf),
-       "</roster>\r\n</roster-config>\r\n");
-    if (xml_write_str(pcb, buf) != ERR_OK) return;
-
-    // xml_write_str(pcb, "</roster>\r\n</roster-config>\r\n");
-    xml_write_str(pcb, "\r\n");  // extra CRLF to be safe
+    // ── Done — close connection ────────────────────────────────────────
+    xml_write_str(pcb, "\r\n");
     tcp_close(pcb);
+    http_conn.pcb   = NULL;
+    http_conn.state = HTTP_IDLE;
+    return true;
 }
-
-// ─── Continue sending XML (called from poll) ─────────────────────────────
-static void xml_continue(struct tcp_pcb *pcb) {
-
-    char buf[128];
-
-    while (http_conn.loco_index < roster.count) {
-        const roster_entry_t *e = roster_get(http_conn.loco_index);
-        if (!e) { http_conn.loco_index++; continue; }
-
-        bool done = xml_send_loco_phase(pcb, e, &http_conn.phase);
-        if (done) {
-            http_conn.loco_index++;
-            http_conn.phase = 0;
-        }
-        // If write failed (ERR_MEM), stop and retry on next poll
-        if (pcb->snd_buf == 0) return;
-    }
-
-    // All locos sent — close tags and finish
-    xml_end(pcb);
-}
-
 
 // ─── Parse HTTP request (simplified) ─────────────────────────────────────
 static bool is_roster_request(const char *request) {
-    // Match "GET /roster" with optional trailing /, ?, query params
     return (strstr(request, "GET /roster") != NULL);
 }
 
 // ─── lwIP callbacks ──────────────────────────────────────────────────────
 static err_t http_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) {
     if (!p) {
-        // Connection closed
         if (http_conn.pcb == pcb) {
             http_conn.pcb   = NULL;
             http_conn.state = HTTP_IDLE;
@@ -275,7 +276,6 @@ static err_t http_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t 
         return err;
     }
 
-    // Extract request line (first line of HTTP request)
     char request[128];
     u16_t copy_len = (p->tot_len < sizeof(request) - 1) ? p->tot_len : sizeof(request) - 1;
     pbuf_copy_partial(p, request, copy_len, 0);
@@ -286,18 +286,18 @@ static err_t http_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t 
 
     LOG_INFO(TAG, "HTTP request: %s", request);
 
-    // Reject if already serving someone
     if (http_conn.pcb != NULL && http_conn.pcb != pcb) {
         tcp_close(pcb);
         return ERR_OK;
     }
 
     if (is_roster_request(request)) {
-        http_conn.pcb = pcb;
-        xml_start(pcb);
-        xml_continue(pcb);
+        http_conn.pcb   = pcb;
+        http_conn.state = HTTP_SENDING_XML;
+        http_conn.loco_index = 0;
+        http_conn.phase = 0;
+        xml_send_chunk(pcb);
     } else {
-        // 404
         xml_write_str(pcb,
             "HTTP/1.1 404 Not Found\r\n"
             "Connection: close\r\n"
@@ -317,9 +317,8 @@ static void http_err_cb(void *arg, err_t err) {
 }
 
 static err_t http_poll_cb(void *arg, struct tcp_pcb *pcb) {
-    // Continue sending XML if in progress
     if (http_conn.pcb == pcb && http_conn.state == HTTP_SENDING_XML) {
-        xml_continue(pcb);
+        xml_send_chunk(pcb);
     }
     return ERR_OK;
 }
@@ -327,7 +326,6 @@ static err_t http_poll_cb(void *arg, struct tcp_pcb *pcb) {
 static err_t http_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) {
     if (err != ERR_OK || newpcb == NULL) return ERR_VAL;
 
-    // Reject if already serving a connection
     if (http_conn.pcb != NULL) {
         LOG_WARN(TAG, "HTTP: rejecting second connection");
         tcp_close(newpcb);
@@ -336,13 +334,12 @@ static err_t http_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) {
 
     tcp_setprio(newpcb, TCP_PRIO_MIN);
 
-    // Clear connection state
     memset(&http_conn, 0, sizeof(http_conn));
 
     tcp_arg(newpcb, NULL);
     tcp_recv(newpcb, http_recv_cb);
     tcp_err(newpcb, http_err_cb);
-    tcp_poll(newpcb, http_poll_cb, 2);  // poll every 2 * 500ms = 1s
+    tcp_poll(newpcb, http_poll_cb, 2);
 
     LOG_INFO(TAG, "HTTP connection accepted");
     return ERR_OK;

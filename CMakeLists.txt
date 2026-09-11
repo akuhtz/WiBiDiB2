@@ -32,12 +32,16 @@ include(${FREERTOS_KERNEL_PATH}/portable/ThirdParty/GCC/RP2350_ARM_NTZ/FreeRTOS_
 
 project(WiBiDiB C CXX ASM)
 
+# CYW43 task config — must be BEFORE pico_sdk_init() so SDK library sources see it
+add_compile_definitions(CYW43_TASK_STACK_SIZE=2048 CYW43_TASK_PRIORITY=3)
+
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
 
 # Sources — 
    add_executable(WiBiDiB
     main.c
+    led.c
     bidib.c
     crc_8bit.c
     tcp_server.c
@@ -90,7 +94,6 @@ target_include_directories(WiBiDiB PRIVATE
 target_compile_definitions(WiBiDiB PRIVATE
     FREERTOS_CONFIG_FILE_DIRECTORY="${CMAKE_CURRENT_LIST_DIR}/include"
     FREERTOS_KERNEL_INCLUDE_DIR="${FREERTOS_KERNEL_PATH}/include"
-    CYW43_TASK_PRIORITY=3
 )
 
 pico_add_extra_outputs(WiBiDiB)
