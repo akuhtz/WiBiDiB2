@@ -39,6 +39,27 @@ void vApplicationMallocFailedHook(void) {
     configASSERT(0);
 }
 
+void HardFault_Handler(void) {
+    uint32_t cfsr = *((volatile uint32_t*)0xE000ED28);
+    uint32_t bfar = *((volatile uint32_t*)0xE000ED38);
+    uint32_t mmfar = *((volatile uint32_t*)0xE000ED34);
+    uint32_t lr;
+    __asm volatile ("mov %0, lr" : "=r"(lr));
+    printf("HARDFAULT: CFSR=0x%08lX BFAR=0x%08lX MMFAR=0x%08lX LR=0x%08lX\n", cfsr, bfar, mmfar, lr);
+    for (;;) {}
+}
+
+// Override SDK's weak isr_hardfault (used in vector table)
+void isr_hardfault(void) {
+    uint32_t cfsr = *((volatile uint32_t*)0xE000ED28);
+    uint32_t bfar = *((volatile uint32_t*)0xE000ED38);
+    uint32_t mmfar = *((volatile uint32_t*)0xE000ED34);
+    uint32_t lr;
+    __asm volatile ("mov %0, lr" : "=r"(lr));
+    printf("HARDFAULT: CFSR=0x%08lX BFAR=0x%08lX MMFAR=0x%08lX LR=0x%08lX\n", cfsr, bfar, mmfar, lr);
+    for (;;) {}
+}
+
 // ─── Task handles ────────────────────────────────────────────────────────
 static TaskHandle_t bidib_parser_task_handle;
 static TaskHandle_t log_task_handle;
