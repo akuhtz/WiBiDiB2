@@ -143,7 +143,7 @@ int main(void)
     // Network task (prio 2) — owns CYW43 async context
     xTaskCreate(network_task, "network", 1536, NULL, 2, NULL);
     // BiDiB parser task (prio 4) — highest, real-time bus
-    xTaskCreate(bidib_parser_task, "bidib_parser", 1024, NULL, 4, &bidib_parser_task_handle);
+    xTaskCreate(bidib_parser_task, "bidib_parser", 2048, NULL, 4, &bidib_parser_task_handle);
     // Log output task (prio 1) — UART drain
     xTaskCreate(log_output_task,   "log_output",   512, NULL, 1, &log_task_handle);
 
