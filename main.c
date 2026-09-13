@@ -23,6 +23,7 @@
 #include "flash_store.h"
 #include "http_server.h"
 #include "roster.h"
+#include "roster_writer.h"
 #include "led.h"
 #include "config.h"
 
@@ -119,7 +120,7 @@ static void network_task(void *param) {
     }
 
     roster_init();
-    LOG_INFO(TAG, "Roster: %d entries", roster.count);
+    LOG_INFO(TAG, "Roster: %d entries", roster_count_valid());
 
     if (!http_server_init()) {
         LOG_WARN(TAG, "HTTP server init failed");
@@ -168,6 +169,10 @@ int main(void)
     xTaskCreate(bidib_parser_task, "bidib_parser", 2048, NULL, 4, &bidib_parser_task_handle);
     // Log output task (prio 1) — UART drain
     xTaskCreate(log_output_task,   "log_output",   512, NULL, 1, &log_task_handle);
+    // Roster writer task (prio 1) — background flash writes
+    if (!roster_writer_init()) {
+        LOG_WARN(TAG, "roster_writer_init failed");
+    }
 
     // Drain any LOG messages accumulated during init (before tasks run)
     log_poll();

@@ -58,6 +58,14 @@ bool flash_store_erase_all(void);
 #define FLASH_USER_STRING_ADDR   0x000000   // chaîne utilisateur (namespace 0, id 1)
 #define FLASH_USER_STRING_MAX    24         // = BIDIB_STRING_MAX
 
+// ─── Roster storage layout ──────────────────────────────────────────────
+// Header sector at 0x001000, one 4KB sector per entry starting at 0x002000.
+#define ROSTER_HEADER_ADDR       0x001000
+#define ROSTER_ENTRY_BASE        0x002000
+#define ROSTER_ENTRY_STRIDE      FLASH_SECTOR_SIZE
+#define ROSTER_HEADER_MAGIC      0x52535452u        /* 'RSTR' */
+#define ROSTER_HEADER_VERSION    1
+
 // Reads the string at `addr`. Returns false if the record is blank (0xFF),
 // invalid, or if the length exceeds buf_size-1.
 bool flash_store_read_string(uint32_t addr, char *buf, size_t buf_size);

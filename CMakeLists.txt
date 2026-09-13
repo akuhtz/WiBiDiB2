@@ -35,6 +35,13 @@ project(WiBiDiB C CXX ASM)
 # CYW43 task config — must be BEFORE pico_sdk_init() so SDK library sources see it
 add_compile_definitions(CYW43_TASK_STACK_SIZE=2048 CYW43_TASK_PRIORITY=3)
 
+# Debug: force a flash write failure every N calls (rollback + LED_ERROR test).
+# Enable with:  cmake -B build ... -DROSTER_INJECT_FLASH_FAIL=1
+if(DEFINED ROSTER_INJECT_FLASH_FAIL)
+    add_compile_definitions(ROSTER_INJECT_FLASH_FAIL=${ROSTER_INJECT_FLASH_FAIL})
+    message(STATUS "Roster flash-fail injection enabled: every ${ROSTER_INJECT_FLASH_FAIL} writes")
+endif()
+
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
 
@@ -55,7 +62,9 @@ pico_sdk_init()
     mdns.c
     flash_store.c
     roster.c
+    roster_writer.c
     http_server.c
+    form_parser.c
 )
 
 # Générer le header C depuis le fichier PIO

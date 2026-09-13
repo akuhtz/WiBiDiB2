@@ -66,25 +66,16 @@ void throttle_stop(uint8_t slot) {
 }
 
 const roster_entry_t * findRosterEntry(int locoAddr) {
-    roster_entry_t *e = NULL;
-    uint8_t loco_index = 0;
+    // Legacy API: returns a pointer to a static thread-local copy.
+    // Safe because callers use the pointer only within a single function
+    // scope, and only the tcpip_thread calls this function.
+    static roster_entry_t s_entry;
 
     LOG_INFO(TAG, "Find roster entry for locoAddr: %d", locoAddr);
-
-    while (loco_index < roster.count) {
-        const roster_entry_t *entry = roster_get(loco_index);
-        loco_index++; 
-        if (!entry) { 
-            continue; 
-        }
-
-        // TODO check if short or long addr
-        if (entry->dccAddress == locoAddr) {
-            LOG_INFO(TAG, "Current roster entry: %s", entry->id);
-            return entry;
-        }
+    if (roster_find_by_addr((uint16_t)locoAddr, &s_entry)) {
+        LOG_INFO(TAG, "Current roster entry: %s", s_entry.id);
+        return &s_entry;
     }
-
     LOG_INFO(TAG, "No roster entry found for locoAddr: %d", locoAddr);
     return NULL;
 }
@@ -477,8 +468,7 @@ static void checkHeartbeat(uint8_t slot) {
 void send_welcome_message(struct tcp_pcb *pcb) {
     char buf[128];
 
-    uint8_t rosterCount = roster.count;
-    // const roster_entry_t *e = roster_get(0);
+    uint8_t rosterCount = roster_count_valid();
     uint8_t loco_index = 0;
 
     LOG_INFO(TAG, "Send welcome message to new client. Roster count: %d", rosterCount);
@@ -495,23 +485,26 @@ void send_welcome_message(struct tcp_pcb *pcb) {
     tcp_write(pcb, buf, (u16_t)strlen(buf), TCP_WRITE_FLAG_COPY);
 
     while (loco_index < rosterCount) {
-        const roster_entry_t *entry = roster_get(loco_index);
-        loco_index++; 
-
-        if (!entry) { 
-            continue; 
+        // Static to avoid a 1.2 KB stack allocation in the tcpip_thread.
+        // Only one welcome message is generated at a time.
+        static roster_entry_t entry;
+        uint8_t slot;
+        if (!roster_get_dense(loco_index, &slot, &entry)) {
+            loco_index++;
+            continue;
         }
+        loco_index++;
 
-        LOG_INFO(TAG, "Current roster.id: %s", entry->id);
+        LOG_INFO(TAG, "Current roster.id: %s", entry.id);
 
         // prepare data of current roster entry
         log_snprintf(buf, sizeof(buf),
                 "%d]\\[%s}|{%d}|{%s",
-            rosterCount, entry->id, entry->dccAddress, entry->longAddress ? "L" : "S");
+            rosterCount, entry.id, entry.dccAddress, entry.longAddress ? "L" : "S");
 
         tcp_write(pcb, buf, (u16_t)strlen(buf), TCP_WRITE_FLAG_COPY);
 
-        if (loco_index < roster.count) {
+        if (loco_index < rosterCount) {
             log_snprintf(buf, sizeof(buf),
                     "]\\[");
             tcp_write(pcb, buf, (u16_t)strlen(buf), TCP_WRITE_FLAG_COPY);
