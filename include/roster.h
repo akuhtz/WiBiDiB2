@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define ROSTER_MAX_ENTRIES    32
+#define ROSTER_MAX_ENTRIES    8
 #define ROSTER_FUNC_MAX       28
 #define ROSTER_STRING_MAX     32
 
