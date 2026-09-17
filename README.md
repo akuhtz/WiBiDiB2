@@ -132,6 +132,11 @@ The roster supports up to **32 entries** in flash. Only 4 entries are kept in RA
 
 Save/delete operations return a redirect immediately; the flash write happens in the background. If a flash write fails, the RAM cache is rolled back to match what is actually persisted and the onboard LED switches to a sticky fast-blink error state.
 
+Typical response times on local WiFi:
+- `/roster.html`: ~300 ms
+- `/roster/` (JMRI XML): ~500 ms
+- `/edit?slot=N`: ~1 s (9.5 KB HTML with all 29 function rows)
+
 ## Status LED
 
 The onboard CYW43 LED indicates gateway state:

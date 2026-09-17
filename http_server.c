@@ -89,6 +89,19 @@ static struct tcp_pcb *http_listen_pcb;
 static char g_gen_buf[768];
 
 // ─── Low-level write helpers ─────────────────────────────────────────────
+// http_write_buffered queues data into lwIP's send buffer without pushing
+// it out immediately. Call http_flush() once at the end of a generator
+// invocation to send everything as few TCP segments as possible.
+static err_t http_write_buffered(struct tcp_pcb *pcb, const char *data, u16_t len) {
+    return tcp_write(pcb, data, len, TCP_WRITE_FLAG_COPY);
+}
+
+static void http_flush(struct tcp_pcb *pcb) {
+    tcp_output(pcb);
+}
+
+// Backward-compat: writes and flushes immediately (used by short single-shot
+// responses like 302/400/404 where batching offers no gain).
 static err_t http_write(struct tcp_pcb *pcb, const char *data, u16_t len) {
     err_t err = tcp_write(pcb, data, len, TCP_WRITE_FLAG_COPY);
     if (err == ERR_OK) tcp_output(pcb);
@@ -96,20 +109,20 @@ static err_t http_write(struct tcp_pcb *pcb, const char *data, u16_t len) {
 }
 
 static err_t http_write_str(struct tcp_pcb *pcb, const char *s) {
-    return http_write(pcb, s, (u16_t)strlen(s));
+    return http_write_buffered(pcb, s, (u16_t)strlen(s));
 }
 
 // Write XML-escaped string (handles & and <)
 static err_t http_write_xml_escaped(struct tcp_pcb *pcb, const char *s) {
     while (*s) {
         if (*s == '&') {
-            err_t r = http_write(pcb, "&amp;", 5);
+            err_t r = http_write_buffered(pcb, "&amp;", 5);
             if (r != ERR_OK) return r;
         } else if (*s == '<') {
-            err_t r = http_write(pcb, "&lt;", 4);
+            err_t r = http_write_buffered(pcb, "&lt;", 4);
             if (r != ERR_OK) return r;
         } else {
-            err_t r = http_write(pcb, s, 1);
+            err_t r = http_write_buffered(pcb, s, 1);
             if (r != ERR_OK) return r;
         }
         s++;
@@ -129,8 +142,8 @@ static err_t http_write_html_escaped(struct tcp_pcb *pcb, const char *s) {
         case '\'': rep = "&#39;";  rl = 5; break;
         }
         err_t r;
-        if (rep) r = http_write(pcb, rep, rl);
-        else     r = http_write(pcb, s, 1);
+        if (rep) r = http_write_buffered(pcb, rep, rl);
+        else     r = http_write_buffered(pcb, s, 1);
         if (r != ERR_OK) return r;
         s++;
     }
@@ -150,6 +163,9 @@ static void conn_reset(void) {
 }
 
 static void conn_close(struct tcp_pcb *pcb) {
+    // Push any buffered response data before closing — tcp_close only
+    // queues a FIN and does not flush pending tcp_write() bytes.
+    tcp_output(pcb);
     if (http_conn.pcb == pcb) conn_reset();
     tcp_close(pcb);
 }
@@ -381,11 +397,11 @@ static bool xml_send_chunk(struct tcp_pcb *pcb) {
                 e->dccAddress, e->maxSpeed);
             if (http_write_str(pcb, buf) != ERR_OK) return false;
             http_conn.phase = ++p;
-            return false;
+            break;
         case 1:
             // decoder placeholder — skip
             http_conn.phase = ++p;
-            return false;
+            break;
         case 2:
             snprintf(buf, sizeof(g_gen_buf),
                 "<locoaddress><dcclocoaddress number=\"%d\" longaddress=\"%s\"/>"
@@ -394,7 +410,7 @@ static bool xml_send_chunk(struct tcp_pcb *pcb) {
                 e->dccAddress, e->longAddress ? "dcc_long" : "dcc_short");
             if (http_write_str(pcb, buf) != ERR_OK) return false;
             http_conn.phase = ++p;
-            return false;
+            break;
         case 3: {
             if (http_write_str(pcb, "<functionlabels>") != ERR_OK) return false;
             for (uint8_t fn = 0; fn <= e->maxFnNum && fn <= ROSTER_FUNC_MAX; fn++) {
@@ -409,12 +425,12 @@ static bool xml_send_chunk(struct tcp_pcb *pcb) {
             }
             if (http_write_str(pcb, "</functionlabels>") != ERR_OK) return false;
             http_conn.phase = ++p;
-            return false;
+            break;
         }
         case 4:
             if (http_write_str(pcb, "</locomotive>") != ERR_OK) return false;
             http_conn.phase = ++p;
-            return false;
+            break;
         }
     }
 
@@ -707,6 +723,13 @@ static void dispatch(struct tcp_pcb *pcb) {
         send_404(pcb);
         break;
     }
+
+    // Push any data buffered by the generator (partial run — will resume
+    // on the next tcp_poll). If the generator finished, it already called
+    // conn_close which flushes.
+    if (http_conn.pcb == pcb && http_conn.state == HTTP_SENDING) {
+        http_flush(pcb);
+    }
 }
 
 // ─── lwIP callbacks ──────────────────────────────────────────────────────
@@ -786,6 +809,9 @@ static err_t http_poll_cb(void *arg, struct tcp_pcb *pcb) {
         case R_EDIT:         html_edit_send(pcb);   break;
         default: break;
         }
+        // Push any buffered data out of lwIP now, in case the generator
+        // finished all remaining phases without hitting ERR_MEM.
+        if (http_conn.pcb == pcb) http_flush(pcb);
     }
     return ERR_OK;
 }
@@ -801,6 +827,7 @@ static err_t http_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) {
     }
 
     tcp_setprio(newpcb, TCP_PRIO_MIN);
+    tcp_nagle_disable(newpcb);       // ship small final segments immediately
     memset(&http_conn, 0, sizeof(http_conn));
     http_conn.pcb      = newpcb;
     http_conn.state    = HTTP_RECV_HEADERS;
@@ -809,7 +836,7 @@ static err_t http_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) {
     tcp_arg(newpcb, NULL);
     tcp_recv(newpcb, http_recv_cb);
     tcp_err(newpcb, http_err_cb);
-    tcp_poll(newpcb, http_poll_cb, 2);
+    tcp_poll(newpcb, http_poll_cb, 1);   // 500 ms retry (was 1 s)
 
     LOG_INFO(TAG, "HTTP connection accepted");
     return ERR_OK;

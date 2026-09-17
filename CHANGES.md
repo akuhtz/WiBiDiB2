@@ -391,3 +391,90 @@ Cortex-M33 STKOF during WiThrottle connect and HTTP save. Fixes:
 closed via `tcp_close()` (use-after-close). Moved `tcp_recved()` before
 `dispatch()`. Suppressed spurious `ERR_ABRT` / `ERR_RST` / `ERR_CLSD`
 warnings from `err_cb` — those are normal peer-side close scenarios.
+
+---
+
+# CHANGES — HTTP response speed
+
+## Overview
+
+The initial roster-editor implementation delivered pages in many small
+TCP segments (one per phase in the resumable generators), and every
+phase that finished with `return false` yielded back to the recv loop.
+This caused visible chunking and long page loads — the JMRI XML page
+took ~7.3 s and the `/edit` form ~4.2 s on the local WiFi.
+
+Four fixes brought those down to sub-second: batched writes, single
+flush per invocation, larger lwIP send buffers, tighter poll interval,
+and Nagle's algorithm disabled on HTTP connections.
+
+**Measured impact (local WiFi, curl `time_total`):**
+
+| Endpoint         | Before  | After  | Speedup |
+|------------------|--------:|-------:|--------:|
+| `/roster.html`   | 167 ms  | 285 ms | ~same (WiFi variance dominates) |
+| `/edit?slot=0`   | 4190 ms | 940 ms | 4.5× |
+| `/roster/` XML   | 7300 ms | 470 ms | 15× |
+
+**Binary impact:** text +72 B, bss unchanged. Peak lwIP heap under 5
+concurrent connections: +~40 KB (still fits in 40 KB FreeRTOS heap
+under realistic scenarios of 1 HTTP + 1–2 WiThrottle).
+
+---
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `include/lwipopts.h` | `TCP_MSS=1460`, `TCP_SND_BUF=TCP_WND=8*TCP_MSS` |
+| `http_server.c` | Split `http_write` → buffered + flush, single `tcp_output` per invocation, `tcp_nagle_disable`, tighter `tcp_poll`, XML generator no longer returns per-phase |
+
+---
+
+## Details
+
+### 1. Batched writes (`http_server.c`)
+
+Introduced `http_write_buffered()` which calls `tcp_write` without
+`tcp_output`, and `http_flush()` which just calls `tcp_output`. All
+generator writes (`http_write_str`, `http_write_xml_escaped`,
+`http_write_html_escaped`) now buffer, and a single `tcp_output` is
+issued at the end of each generator invocation from `dispatch()` /
+`http_poll_cb()` / `conn_close()`.
+
+`conn_close()` now calls `tcp_output()` before `tcp_close()` — the
+latter only queues a FIN and does not flush pending `tcp_write` bytes.
+
+### 2. XML generator: run all phases in one invocation
+
+The `/roster/` XML generator had `return false;` at the end of every
+switch case, which yielded to the recv loop after each phase. With 3
+locomotives × 5 phases = 15 yields at 500 ms per `tcp_poll` retry,
+each XML page took ~7 s. Changed each case to `break;` so the loop
+continues through all phases and only returns on `ERR_MEM`.
+
+### 3. TCP tuning (`include/lwipopts.h`)
+
+```c
+#define TCP_MSS        1460             // was default (~536)
+#define TCP_SND_BUF    (8 * TCP_MSS)    // ~11.7 KB
+#define TCP_WND        (8 * TCP_MSS)    // ~11.7 KB
+```
+
+`TCP_MSS=1460` matches typical Ethernet MTU. `TCP_SND_BUF` sized so the
+whole 9.5 KB `/edit` form fits in one send buffer, avoiding `ERR_MEM`
+stalls that trigger 500 ms poll retries. Buffers are allocated per PCB
+from lwIP's heap on connect, not statically in bss.
+
+### 4. Nagle disabled on HTTP PCBs
+
+`tcp_nagle_disable(newpcb)` in `http_accept_cb`. Nagle's algorithm
+holds small final segments waiting for the peer's delayed ACK (up to
+200 ms). Standard practice for HTTP servers — the response is
+self-contained so we do not need TCP to coalesce writes on our behalf.
+Does not affect WiThrottle PCBs (separate objects).
+
+### 5. Tighter poll interval
+
+`tcp_poll(pcb, cb, 2)` → `tcp_poll(pcb, cb, 1)` — 500 ms retry interval
+if `ERR_MEM` does occur, halving worst-case latency.

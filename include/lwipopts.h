@@ -35,4 +35,17 @@
 #define MEMP_NUM_SYS_TIMEOUT        16
 #endif
 
+// ── HTTP response speed: allow enough unacked data per connection ─────────
+// The /edit form page is ~9.5 KB; sizing TCP_SND_BUF to fit it in one buffer
+// avoids ERR_MEM stalls that trigger tcp_poll retries every 500 ms.
+#ifndef TCP_MSS
+#define TCP_MSS         1460
+#endif
+#ifndef TCP_SND_BUF
+#define TCP_SND_BUF     (8 * TCP_MSS)
+#endif
+#ifndef TCP_WND
+#define TCP_WND         (8 * TCP_MSS)
+#endif
+
 #endif
